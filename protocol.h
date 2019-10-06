@@ -32,6 +32,22 @@
 #define SOCKS5_RESPCODE_ADDRTYPENOTSPT 0x08
 #define SOCKS5_RESPCODE_09FFUNASSIGNED 0x09
 
+/* get a string description of the given response code */
+static inline const char* socks5_rcode2string(uint8_t rcode) {
+    switch (rcode) {
+        case SOCKS5_RESPCODE_SUCCEEDED: return "Succeeded";
+        case SOCKS5_RESPCODE_SVRGENERR: return "General server failure";
+        case SOCKS5_RESPCODE_NOTALLOWED: return "Not allowed by ruleset";
+        case SOCKS5_RESPCODE_NETUNREACH: return "Network unreachable";
+        case SOCKS5_RESPCODE_HOSTUNREACH: return "Host unreachable";
+        case SOCKS5_RESPCODE_CONNREFUSED: return "Connection refused";
+        case SOCKS5_RESPCODE_TTLEXPIRED: return "TTL expired";
+        case SOCKS5_RESPCODE_COMMANDNOTSPT: return "Command not supported";
+        case SOCKS5_RESPCODE_ADDRTYPENOTSPT: return "Address type not supported";
+    }
+    return "Unknown response code";
+}
+
 /* socks5 udp message payload maxsize */
 #define SOCKS5_UDP4_PAYLOAD_MAXSIZE (UDP_PACKET_MAXSIZE - sizeof(socks5_udp4msg_t))
 #define SOCKS5_UDP6_PAYLOAD_MAXSIZE (UDP_PACKET_MAXSIZE - sizeof(socks5_udp6msg_t))
