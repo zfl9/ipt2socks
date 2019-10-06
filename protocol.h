@@ -33,7 +33,7 @@
 #define SOCKS5_RESPCODE_09FFUNASSIGNED 0x09
 
 /* 1500(mtu) - 20(iphdr) - 8(udphdr) */
-#define UDPPACKET_MAXSIZE (1500 - 20 - 8)
+#define UDPPACKET_MAXSIZE (1500UL - 20UL - 8UL)
 
 /* 1500(mtu) - 20(iphdr) - 8(udphdr) - sizeof(udpmsghdr) */
 #define SOCKS5_UDP4_PAYLOAD_MAXSIZE (UDPPACKET_MAXSIZE - sizeof(socks5_udp4msg_t))
