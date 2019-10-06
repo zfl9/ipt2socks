@@ -108,7 +108,7 @@ typedef struct {
 /* socks5 ipv4-udp message header */
 typedef struct {
     uint16_t  reserved; /* 0x0000 */
-    uint8_t   fragment;
+    uint8_t   fragment; /* 0x00 */
     uint8_t   addrtype;
     ipaddr4_t ipaddr4;
     portno_t  portnum;
@@ -118,7 +118,7 @@ typedef struct {
 /* socks5 ipv6-udp message header */
 typedef struct {
     uint16_t  reserved; /* 0x0000 */
-    uint8_t   fragment;
+    uint8_t   fragment; /* 0x00 */
     uint8_t   addrtype;
     ipaddr6_t ipaddr6;
     portno_t  portnum;
