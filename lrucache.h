@@ -1,0 +1,6 @@
+#ifndef IPT2SOCKS_LRUCACHE_H
+#define IPT2SOCKS_LRUCACHE_H
+
+// TODO
+
+#endif

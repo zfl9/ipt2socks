@@ -21,11 +21,23 @@
 #define PORTSTRLEN 6
 
 /* ip address typedef */
-typedef uint32_t ip4addr_t;
-typedef uint8_t  ip6addr_t[16];
+typedef uint32_t ipaddr4_t;
+typedef uint8_t  ipaddr6_t[16];
+
+/* ip4/ip6 union typedef */
+typedef union {
+    ipaddr4_t ip4;
+    ipaddr6_t ip6;
+} ipaddr_t;
 
 /* port number typedef */
 typedef uint16_t portno_t;
+
+/* ipaddr+portno typedef */
+typedef struct {
+    ipaddr_t ip;
+    portno_t port;
+} ip_port_t;
 
 /* sockaddr type alias */
 typedef struct sockaddr     skaddr_t;

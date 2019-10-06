@@ -244,7 +244,7 @@ void parse_ipv6_addr(const skaddr6_t *addr, char *ipstr, portno_t *portno) {
 /* AF_INET or AF_INET6 or -1(invalid ip string) */
 int get_ipstr_family(const char *ipstr) {
     if (!ipstr) return -1;
-    ip6addr_t ipaddr; /* save ipv4/ipv6 addr */
+    ipaddr_t ipaddr; /* save ipv4/ipv6 addr */
     if (inet_pton(AF_INET, ipstr, &ipaddr) == 1) {
         return AF_INET;
     } else if (inet_pton(AF_INET6, ipstr, &ipaddr) == 1) {
