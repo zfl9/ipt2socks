@@ -4,8 +4,9 @@
 #define _GNU_SOURCE
 #include <stdint.h>
 #include <stdbool.h>
-#include <sys/socket.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/resource.h>
 #include <uv.h>
 #undef _GNU_SOURCE
 
@@ -134,6 +135,9 @@ void parse_ipv6_addr(const skaddr6_t *addr, char *ipstr, portno_t *portno);
 
 /* AF_INET or AF_INET6 or -1(invalid ip string) */
 int get_ipstr_family(const char *ipstr);
+
+/* set nofile limit (may require root privileges) */
+void set_nofile_limit(rlim_t nofile);
 
 /* strerror thread safe version (libuv) */
 #define errstring(errnum) uv_strerror(-(errnum))
