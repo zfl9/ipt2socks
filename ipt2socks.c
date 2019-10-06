@@ -43,27 +43,30 @@ enum {
 /* ipt2socks version string */
 #define IPT2SOCKS_VERSION "ipt2socks v1.0-beta.1 <https://github.com/zfl9/ipt2socks>"
 
-static bool     g_verbose    = false;
-static uint8_t  g_options    = OPTION_DEFAULT;
-static uint8_t  g_nthreads   = THREAD_NUMBERS_DEFAULT;
-static uint32_t g_tcpbufsiz  = TCP_SKBUFSIZE_DEFAULT;
-static uint16_t g_udpidletmo = UDP_IDLE_TIMEO_DEFAULT;
+/* static global variable definition */
+static bool        g_verbose                 = false;
+static uint8_t     g_options                 = OPTION_DEFAULT;
+static uint8_t     g_nthreads                = THREAD_NUMBERS_DEFAULT;
+static uint32_t    g_tcpbufsiz               = TCP_SKBUFSIZE_DEFAULT;
+static uint16_t    g_udpidletmo              = UDP_IDLE_TIMEO_DEFAULT;
 
-static char      g_bind_ipstr4[IP4STRLEN] = BIND_IPV4_DEFAULT;
-static char      g_bind_ipstr6[IP6STRLEN] = BIND_IPV6_DEFAULT;
-static portno_t  g_bind_portno            = BIND_PORT_DEFAULT;
-static skaddr4_t g_bind_skaddr4           = {0};
-static skaddr6_t g_bind_skaddr6           = {0};
+static char        g_bind_ipstr4[IP4STRLEN]  = BIND_IPV4_DEFAULT;
+static char        g_bind_ipstr6[IP6STRLEN]  = BIND_IPV6_DEFAULT;
+static portno_t    g_bind_portno             = BIND_PORT_DEFAULT;
+static skaddr4_t   g_bind_skaddr4            = {0};
+static skaddr6_t   g_bind_skaddr6            = {0};
 
-static bool      g_server_isipv4           = true;
-static char      g_server_ipstr[IP6STRLEN] = {0};
-static char      g_server_portno           = 0;
-static skaddr6_t g_server_skaddr           = {0};
+static bool        g_server_isipv4           = true;
+static char        g_server_ipstr[IP6STRLEN] = {0};
+static portno_t    g_server_portno           = 0;
+static skaddr6_t   g_server_skaddr           = {0};
 
-static uv_poll_t*  g_udp_listener = NULL;
-static lrucache_t* g_udp_cltcache = NULL;
-static lrucache_t* g_udp_svrcache = NULL;
+static uv_poll_t*  g_udp_listener4           = NULL;
+static uv_poll_t*  g_udp_listener6           = NULL;
+static lrucache_t* g_udp_clntcache           = NULL;
+static lrucache_t* g_udp_servcache           = NULL;
 
+/* print command help information */
 static void print_command_help(void) {
     printf("usage: ipt2socks <options...>. the existing options are as follows:\n"
            " -s, --server-addr <addr>           socks5 server ip address, <required>\n"
@@ -87,6 +90,7 @@ static void print_command_help(void) {
     );
 }
 
+/* parsing command line arguments */
 static void parse_command_args(int argc, char* argv[]) {
     const char *optstr = ":s:p:b:B:l:j:n:o:c:f:RTU46vVh";
     const struct option options[] = {
@@ -117,59 +121,30 @@ static void parse_command_args(int argc, char* argv[]) {
     while ((shortopt = getopt_long(argc, argv, optstr, options, &optindex)) != -1) {
         switch (shortopt) {
             case 's':
-                if (strlen(optarg) + 1 > DOMAIN_NAME_STRLEN) {
-                    printf("[parse_command_args] domain name max length is 253: %s\n", optarg);
+                if (strlen(optarg) + 1 > IP6STRLEN) {
+                    printf("[parse_command_args] ip address max length is 45: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
-                strcpy(g_svr_vhost, optarg);
-                break;
-            case 'S':
-                if (get_ipstr_family(optarg) == -1 && strlen(optarg) + 1 > DOMAIN_NAME_STRLEN) {
-                    printf("[parse_command_args] domain name max length is 253: %s\n", optarg);
+                if (get_ipstr_family(optarg) == -1) {
+                    printf("[parse_command_args] invalid server ip address: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
-                opt_server_addr = optarg;
+                g_server_isipv4 = get_ipstr_family(optarg) == AF_INET;
+                strcpy(g_server_ipstr, optarg);
                 break;
-            case 'P':
-                if (strlen(optarg) + 1 > PORTSTR_MAXLEN) {
+            case 'p':
+                if (strlen(optarg) + 1 > PORTSTRLEN) {
                     printf("[parse_command_args] port number max length is 5: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
-                g_svr_port = strtol(optarg, NULL, 10);
-                if (g_svr_port == 0) {
+                g_server_portno = strtol(optarg, NULL, 10);
+                if (g_server_portno == 0) {
                     printf("[parse_command_args] invalid server port number: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
                 break;
-            case 'p':
-                if (strlen(optarg) > HTTP_REQUEST_BUFLEN / 4) {
-                    printf("[parse_command_args] http uri path is too long: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                opt_server_path = optarg;
-                break;
-            case 'k':
-                if (strlen(optarg) > HTTP_REQUEST_BUFLEN / 4) {
-                    printf("[parse_command_args] http password is too long: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                opt_server_passwd = optarg;
-                break;
-            case 'm':
-                if (strcmp(SSL_CIPHER_CHACHA20_ALIAS,  optarg) == 0) { g_ssl_cipher = SSL_CIPHER_CHACHA20_VALUE;  break; }
-                if (strcmp(SSL_CIPHER_AES128GCM_ALIAS, optarg) == 0) { g_ssl_cipher = SSL_CIPHER_AES128GCM_VALUE; break; }
-                if (strcmp(SSL_CIPHER_AES256GCM_ALIAS, optarg) == 0) { g_ssl_cipher = SSL_CIPHER_AES256GCM_VALUE; break; }
-                printf("[parse_command_args] unknown openssl cipher name: %s\n", optarg);
-                goto PRINT_HELP_AND_EXIT;
-            case 'C':
-                if (strlen(optarg) + 1 > PATH_MAX) {
-                    printf("[parse_command_args] file path max length is 4095: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                opt_cafile_path = optarg;
-                break;
             case 'b':
-                if (strlen(optarg) + 1 > INET_ADDRSTRLEN) {
+                if (strlen(optarg) + 1 > IP4STRLEN) {
                     printf("[parse_command_args] ipv4 address max length is 15: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
@@ -180,7 +155,7 @@ static void parse_command_args(int argc, char* argv[]) {
                 strcpy(g_bind_ipstr4, optarg);
                 break;
             case 'B':
-                if (strlen(optarg) + 1 > INET6_ADDRSTRLEN) {
+                if (strlen(optarg) + 1 > IP6STRLEN) {
                     printf("[parse_command_args] ipv6 address max length is 45: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
@@ -191,91 +166,67 @@ static void parse_command_args(int argc, char* argv[]) {
                 strcpy(g_bind_ipstr6, optarg);
                 break;
             case 'l':
-                if (strlen(optarg) + 1 > PORTSTR_MAXLEN) {
+                if (strlen(optarg) + 1 > PORTSTRLEN) {
                     printf("[parse_command_args] port number max length is 5: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
-                g_bind_port = strtol(optarg, NULL, 10);
-                if (g_bind_port == 0) {
+                g_bind_portno = strtol(optarg, NULL, 10);
+                if (g_bind_portno == 0) {
                     printf("[parse_command_args] invalid listen port number: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
                 break;
             case 'j':
-                g_process_num = strtol(optarg, NULL, 10);
-                if (g_process_num == 0) {
-                    printf("[parse_command_args] invalid number of work processes: %s\n", optarg);
+                g_nthreads = strtol(optarg, NULL, 10);
+                if (g_nthreads == 0) {
+                    printf("[parse_command_args] invalid number of worker threads: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
                 break;
             case 'n':
                 set_nofile_limit(strtol(optarg, NULL, 10));
                 break;
-            case 'a':
-                g_udp_ack_wait_sec = strtol(optarg, NULL, 10);
-                if (g_udp_ack_wait_sec == 0) {
-                    printf("[parse_command_args] invalid udp tunnel ack timeout val: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                break;
             case 'o':
-                g_udp_idle_timeout = strtol(optarg, NULL, 10);
-                if (g_udp_idle_timeout == 0) {
-                    printf("[parse_command_args] invalid udp socket idle timeout val: %s\n", optarg);
+                g_udpidletmo = strtol(optarg, NULL, 10);
+                if (g_udpidletmo == 0) {
+                    printf("[parse_command_args] invalid udp socket idle timeout: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
                 break;
             case 'c':
-                if (strtol(optarg, NULL, 10) < 1) {
-                    printf("[parse_command_args] invalid maxsize of the udp lrucache: %s\n", optarg);
+                if (strtol(optarg, NULL, 10) == 0) {
+                    printf("[parse_command_args] invalid maxsize of udp lrucache: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
                 lrucache_set_maxsize(strtol(optarg, NULL, 10));
                 break;
-            case 'F':
-                g_bev_buffsize = strtol(optarg, NULL, 10);
-                if (g_bev_buffsize < BEV_BUFFER_SIZE_MINIMUM) {
-                    printf("[parse_command_args] buffer should have at least 1024 bytes: %s\n", optarg);
+            case 'f':
+                g_tcpbufsiz = strtol(optarg, NULL, 10);
+                if (g_tcpbufsiz < TCP_SKBUFSIZE_MINIMUM) {
+                    printf("[parse_command_args] buffer should have at least 1024B: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
-                break;
-            case 'G':
-                if (strlen(optarg) + 1 > PATH_MAX) {
-                    printf("[parse_command_args] the path to the logfile is too long: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                strcpy(g_logfile, optarg);
-                break;
-            case 'D':
-                if (strlen(optarg) + 1 > PATH_MAX) {
-                    printf("[parse_command_args] the path to the pidfile is too long: %s\n", optarg);
-                    goto PRINT_HELP_AND_EXIT;
-                }
-                strcpy(g_pidfile, optarg);
                 break;
             case 'R':
-                g_flags |= OPTION_DNAT;
+                g_options |= OPTION_DNAT;
                 break;
             case 'T':
-                g_flags &= ~OPTION_UDP;
+                g_options &= ~OPTION_UDP;
                 break;
             case 'U':
-                g_flags &= ~OPTION_TCP;
+                g_options &= ~OPTION_TCP;
                 break;
             case '4':
-                g_flags &= ~OPTION_IPV6;
+                g_options &= ~OPTION_IPV6;
                 break;
             case '6':
-                g_flags &= ~OPTION_IPV4;
-                break;
-            case 'd':
-                g_daemon = true;
+                g_options &= ~OPTION_IPV4;
                 break;
             case 'v':
                 g_verbose = true;
                 break;
             case 'V':
-                printf(TLS_CLIENT_VERSION"\n");
+                printf(IPT2SOCKS_VERSION"\n");
                 exit(0);
             case 'h':
                 print_command_help();
@@ -295,9 +246,15 @@ static void parse_command_args(int argc, char* argv[]) {
                 goto PRINT_HELP_AND_EXIT;
         }
     }
+    return;
+
+PRINT_HELP_AND_EXIT:
+    print_command_help();
+    exit(1);
 }
 
-int main() {
-    print_command_help();
+/* main entry */
+int main(int argc, char* argv[]) {
+    parse_command_args(argc, argv);
     return 0;
 }
