@@ -5,6 +5,33 @@
 #include "netutils.h"
 #undef _GNU_SOURCE
 
+/* socks5 protocol version number */
+#define SOCKS5_VERSION 0x05
+
+/* method code constant definition */
+#define SOCKS5_METHOD_NOAUTH 0x00
+#define SOCKS5_METHOD_UNACCEPTABLE 0xff
+
+/* command type constant definition */
+#define SOCKS5_COMMAND_CONNECT 0x01
+#define SOCKS5_COMMAND_UDPASSOCIATE 0x03
+
+/* address type constant definition */
+#define SOCKS5_ADDRTYPE_IPV4 0x01
+#define SOCKS5_ADDRTYPE_IPV6 0x04
+
+/* response code constant definition */
+#define SOCKS5_RESPCODE_SUCCEEDED 0x00
+#define SOCKS5_RESPCODE_SVRGENERR 0x01
+#define SOCKS5_RESPCODE_NOTALLOWED 0x02
+#define SOCKS5_RESPCODE_NETUNREACH 0x03
+#define SOCKS5_RESPCODE_HOSTUNREACH 0x04
+#define SOCKS5_RESPCODE_CONNREFUSED 0x05
+#define SOCKS5_RESPCODE_TTLEXPIRED 0x06
+#define SOCKS5_RESPCODE_COMMANDNOTSPT 0x07
+#define SOCKS5_RESPCODE_ADDRTYPENOTSPT 0x08
+#define SOCKS5_RESPCODE_09FFUNASSIGNED 0x09
+
 /* socks5 authentication request */
 typedef struct {
     uint8_t version; /* 0x05 */
