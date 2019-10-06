@@ -25,10 +25,10 @@ typedef struct {
 typedef void (*lruvalue_free_cb)(void *value);
 
 /* get the maxsize of lrucache (globalvar) */
-size_t lrucache_get_maxsize(void);
+uint16_t lrucache_get_maxsize(void);
 
 /* set the maxsize of lrucache (globalvar) */
-void lrucache_set_maxsize(size_t maxsize);
+void lrucache_set_maxsize(uint16_t maxsize);
 
 /* create a new empty lrucache (head is NULL) */
 lrucache_t* lrucache_new(void);

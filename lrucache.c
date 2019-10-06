@@ -5,15 +5,15 @@
 #undef _GNU_SOURCE
 
 /* lrucache maxsize (private variable) */
-static size_t lrucache_maxsize = LRUCACHE_MAXSIZE_DEFAULT;
+static uint16_t lrucache_maxsize = LRUCACHE_MAXSIZE_DEFAULT;
 
 /* get the maxsize of lrucache (globalvar) */
-size_t lrucache_get_maxsize(void) {
+uint16_t lrucache_get_maxsize(void) {
     return lrucache_maxsize;
 }
 
 /* set the maxsize of lrucache (globalvar) */
-void lrucache_set_maxsize(size_t maxsize) {
+void lrucache_set_maxsize(uint16_t maxsize) {
     lrucache_maxsize = maxsize;
 }
 
