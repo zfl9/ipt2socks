@@ -9,6 +9,10 @@
 #include <uv.h>
 #undef _GNU_SOURCE
 
+/* udp related bufsize */
+#define UDP_MSGCTL_BUFSIZE 64
+#define UDP_PACKET_MAXSIZE 1472
+
 /* ip4/ip6 addr string */
 #define IP4STR_LOOPBACK "127.0.0.1"
 #define IP4STR_WILDCARD "0.0.0.0"

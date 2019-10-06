@@ -32,12 +32,9 @@
 #define SOCKS5_RESPCODE_ADDRTYPENOTSPT 0x08
 #define SOCKS5_RESPCODE_09FFUNASSIGNED 0x09
 
-/* 1500(mtu) - 20(iphdr) - 8(udphdr) */
-#define UDPPACKET_MAXSIZE (1500UL - 20UL - 8UL)
-
-/* 1500(mtu) - 20(iphdr) - 8(udphdr) - sizeof(udpmsghdr) */
-#define SOCKS5_UDP4_PAYLOAD_MAXSIZE (UDPPACKET_MAXSIZE - sizeof(socks5_udp4msg_t))
-#define SOCKS5_UDP6_PAYLOAD_MAXSIZE (UDPPACKET_MAXSIZE - sizeof(socks5_udp6msg_t))
+/* socks5 udp message payload maxsize */
+#define SOCKS5_UDP4_PAYLOAD_MAXSIZE (UDP_PACKET_MAXSIZE - sizeof(socks5_udp4msg_t))
+#define SOCKS5_UDP6_PAYLOAD_MAXSIZE (UDP_PACKET_MAXSIZE - sizeof(socks5_udp6msg_t))
 
 /* socks5 authentication request */
 typedef struct {
