@@ -289,6 +289,11 @@ PRINT_HELP_AND_EXIT:
 
 /* main entry */
 int main(int argc, char* argv[]) {
+    signal(SIGPIPE, SIG_IGN);
+    setvbuf(stdout, NULL, _IOLBF, 256);
     parse_command_args(argc, argv);
+
+    // TODO
+
     return 0;
 }
