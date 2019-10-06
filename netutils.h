@@ -9,6 +9,12 @@
 #include <uv.h>
 #undef _GNU_SOURCE
 
+/* ip4/ip6 addr string */
+#define IP4STR_LOOPBACK "127.0.0.1"
+#define IP4STR_WILDCARD "0.0.0.0"
+#define IP6STR_LOOPBACK "::1"
+#define IP6STR_WILDCARD "::"
+
 /* ipaddr binary len */
 #define IP4BINLEN 4
 #define IP6BINLEN 16
