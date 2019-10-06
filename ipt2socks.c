@@ -293,6 +293,18 @@ int main(int argc, char* argv[]) {
     setvbuf(stdout, NULL, _IOLBF, 256);
     parse_command_args(argc, argv);
 
+    LOGINF("[main] server address: %s#%hu", g_server_ipstr, g_server_portno);
+    if (g_options & OPTION_IPV4) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr4, g_bind_portno);
+    if (g_options & OPTION_IPV6) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr6, g_bind_portno);
+    LOGINF("[main] number of worker threads: %hhu", g_nthreads);
+    LOGINF("[main] udp socket idle timeout: %hu", g_udpidletmo);
+    LOGINF("[main] udp cache maximum size: %hu", lrucache_get_maxsize());
+    LOGINF("[main] tcp socket buffer size: %u", g_tcpbufsiz);
+    if (g_options & OPTION_TCP) LOGINF("[main] enable tcp transparent proxy");
+    if (g_options & OPTION_UDP) LOGINF("[main] enable udp transparent proxy");
+    if (g_options & OPTION_DNAT) LOGINF("[main] use redirect instead of tproxy");
+    IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
+
     // TODO
 
     return 0;
