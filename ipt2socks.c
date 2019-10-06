@@ -246,6 +246,40 @@ static void parse_command_args(int argc, char* argv[]) {
                 goto PRINT_HELP_AND_EXIT;
         }
     }
+
+    if (strlen(g_server_ipstr) == 0) {
+        printf("[parse_command_args] missing option: '-s/--server-addr'\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+    if (g_server_portno == 0) {
+        printf("[parse_command_args] missing option: '-p/--server-port'\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+
+    if (!(g_options & (OPTION_TCP | OPTION_UDP))) {
+        printf("[parse_command_args] both tcp and udp are disabled, nothing to do\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+    if (!(g_options & (OPTION_IPV4 | OPTION_IPV6))) {
+        printf("[parse_command_args] both ipv4 and ipv6 are disabled, nothing to do\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+
+    if (!(g_options & OPTION_TCP)) g_nthreads = 1;
+
+    if (g_options & OPTION_DNAT) {
+        strcpy(g_bind_ipstr4, IP4STR_WILDCARD);
+        strcpy(g_bind_ipstr6, IP6STR_WILDCARD);
+    }
+
+    build_ipv4_addr(&g_bind_skaddr4, g_bind_ipstr4, g_bind_portno);
+    build_ipv6_addr(&g_bind_skaddr6, g_bind_ipstr6, g_bind_portno);
+
+    if (g_server_isipv4) {
+        build_ipv4_addr((void *)&g_server_skaddr, g_server_ipstr, g_server_portno);
+    } else {
+        build_ipv6_addr((void *)&g_server_skaddr, g_server_ipstr, g_server_portno);
+    }
     return;
 
 PRINT_HELP_AND_EXIT:
