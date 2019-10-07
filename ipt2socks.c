@@ -308,9 +308,8 @@ int main(int argc, char* argv[]) {
     if (g_options & OPTION_DNAT) LOGINF("[main] use redirect instead of tproxy");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
-    pthread_t tids[g_nthreads - 1];
     for (int i = 0; i < g_nthreads - 1; ++i) {
-        if (pthread_create(tids + i, NULL, run_event_loop, NULL)) {
+        if (pthread_create(&(pthread_t){0}, NULL, run_event_loop, NULL)) {
             LOGERR("[main] failed to create thread: (%d) %s", errno, errstring(errno));
             return errno;
         }
