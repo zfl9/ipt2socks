@@ -46,6 +46,8 @@ enum {
 /* function declaration in advance */
 static void* run_event_loop(void *is_main_thread);
 
+static void tcp_accept_cb(uv_stream_t *listener, int status);
+
 /* static global variable definition */
 static bool        g_verbose                 = false;
 static uint8_t     g_options                 = OPTION_DEFAULT;
@@ -321,10 +323,52 @@ int main(int argc, char* argv[]) {
 
 /* event loop */
 static void* run_event_loop(void *is_main_thread) {
-    uv_loop_t *loop = &(uv_loop_t){0};
-    uv_loop_init(loop);
+    uv_loop_t *evloop = &(uv_loop_t){0};
+    uv_loop_init(evloop);
 
-    // TODO
+    if (g_options & OPTION_TCP) {
+        if (g_options & OPTION_IPV4) {
+            uv_tcp_t *tcplistener = malloc(sizeof(uv_tcp_t));
+            tcplistener->data = (void *)1; /* is_ipv4 */
+            uv_tcp_init(evloop, tcplistener);
+            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp4_bindsock() : new_tcp4_bindsock_tproxy());
+            int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr4, 0);
+            if (retval < 0) {
+                LOGERR("[run_event_loop] failed to bind address for tcp4 socket: (%d) %s", -retval, uv_strerror(retval));
+                exit(-retval);
+            }
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_accept_cb);
+            if (retval < 0) {
+                LOGERR("[run_event_loop] failed to listen address for tcp4 socket: (%d) %s", -retval, uv_strerror(retval));
+                exit(-retval);
+            }
+        }
+        if (g_options & OPTION_IPV6) {
+            uv_tcp_t *tcplistener = malloc(sizeof(uv_tcp_t));
+            tcplistener->data = NULL; /* is_ipv4 */
+            uv_tcp_init(evloop, tcplistener);
+            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp6_bindsock() : new_tcp6_bindsock_tproxy());
+            int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr6, 0);
+            if (retval < 0) {
+                LOGERR("[run_event_loop] failed to bind address for tcp6 socket: (%d) %s", -retval, uv_strerror(retval));
+                exit(-retval);
+            }
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_accept_cb);
+            if (retval < 0) {
+                LOGERR("[run_event_loop] failed to listen address for tcp6 socket: (%d) %s", -retval, uv_strerror(retval));
+                exit(-retval);
+            }
+        }
+    }
 
+    if ((g_options & OPTION_UDP) && is_main_thread) {
+        // TODO
+    }
+
+    uv_run(evloop, UV_RUN_DEFAULT);
     return NULL;
+}
+
+static void tcp_accept_cb(uv_stream_t *listener, int status) {
+    // TODO
 }
