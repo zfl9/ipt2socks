@@ -511,6 +511,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     uv_tcp_init(listener->loop, socks5_stream);
     uv_tcp_nodelay(socks5_stream, 1);
 
+    IF_VERBOSE LOGINF("[tcp_socket_listen_cb] try to connect to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
     status = uv_tcp_connect(connreq, socks5_stream, (void *)&g_server_skaddr, tcp_socks5_tcp_connect_cb);
     if (status < 0) {
