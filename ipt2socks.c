@@ -559,9 +559,7 @@ static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
 
     if (status < 0) {
         LOGERR("[tcp_socks5_tcp_connect_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
-        uv_close((void *)socks5_stream, tcp_stream_close_cb);
-        uv_close((void *)client_stream, tcp_stream_close_cb);
-        return;
+        goto CLOSE_STREAM_PAIR;
     }
     IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] connected to the socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
 
@@ -570,16 +568,17 @@ static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     status = uv_try_write(socks5_stream, uvbufs, 1);
     if (status < 0) {
         LOGERR("[tcp_socks5_tcp_connect_cb] failed to send authreq to socks5 server: (%d) %s", -status, uv_strerror(status));
-        uv_close((void *)socks5_stream, tcp_stream_close_cb);
-        uv_close((void *)client_stream, tcp_stream_close_cb);
-        return;
+        goto CLOSE_STREAM_PAIR;
     } else if (status < (int)sizeof(socks5_authreq_t)) {
         LOGERR("[tcp_socks5_tcp_connect_cb] socks5 authreq was not completely sent: %d < %zu", status, sizeof(socks5_authreq_t));
-        uv_close((void *)socks5_stream, tcp_stream_close_cb);
-        uv_close((void *)client_stream, tcp_stream_close_cb);
-        return;
+        goto CLOSE_STREAM_PAIR;
     }
     uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_auth_read_cb);
+    return;
+
+CLOSE_STREAM_PAIR:
+    uv_close((void *)socks5_stream, tcp_stream_close_cb);
+    uv_close((void *)client_stream, tcp_stream_close_cb);
 }
 
 /* populate the uvbuf structure before the read_cb call */
@@ -591,8 +590,52 @@ static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *u
     uvbuf->len = g_tcpbufsiz;
 }
 
-static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
-    // TODO
+/* receive authentication response from the socks5 server */
+static void tcp_socks5_auth_read_cb(uv_stream_t *socks5_stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(socks5_stream);
+    tcpcontext_t *context = socks5_stream->data;
+    uv_stream_t *client_stream = (void *)context->client_stream;
+
+    if (nread < 0) {
+        LOGERR("[tcp_socks5_auth_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    if (nread != sizeof(socks5_authresp_t)) {
+        LOGERR("[tcp_socks5_auth_read_cb] auth response length is incorrect: %zd != %zu", nread, sizeof(socks5_authresp_t));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    socks5_authresp_t *authresp = (void *)uvbuf->base;
+    if (authresp->version != SOCKS5_VERSION) {
+        LOGERR("[tcp_socks5_auth_read_cb] auth response version is not SOCKS5: %#hhx", authresp->version);
+        goto CLOSE_STREAM_PAIR;
+    }
+    if (authresp->method != SOCKS5_METHOD_NOAUTH) {
+        LOGERR("[tcp_socks5_auth_read_cb] auth response method is not NOAUTH: %#hhx", authresp->method);
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    IF_VERBOSE LOGINF("[tcp_socks5_auth_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    socks5_ipv4req_t *proxyreq = context->client_buffer;
+    bool isipv4 = proxyreq->addrtype == SOCKS5_ADDRTYPE_IPV4;
+    int length = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
+    uv_buf_t uvbufs[] = {{.base = context->client_buffer, .len = length}};
+    nread = uv_try_write(socks5_stream, uvbufs, 1);
+    if (nread < 0) {
+        LOGERR("[tcp_socks5_auth_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    } else if (nread < length) {
+        LOGERR("[tcp_socks5_tcp_connect_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
+        goto CLOSE_STREAM_PAIR;
+    }
+    uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_resp_read_cb);
+    return;
+
+CLOSE_STREAM_PAIR:
+    uv_close((void *)socks5_stream, tcp_stream_close_cb);
+    uv_close((void *)client_stream, tcp_stream_close_cb);
 }
 
 static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
