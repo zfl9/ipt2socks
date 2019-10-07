@@ -95,6 +95,33 @@ static uv_poll_t*  g_udp_listener6           = NULL;
 static lrucache_t* g_udp_cltcaches           = NULL;
 static lrucache_t* g_udp_svrcaches           = NULL;
 
+/* socks5 authentication request constant */
+static const socks5_authreq_t G_SOCKS5_AUTH_REQUEST = {
+    .version = SOCKS5_VERSION,
+    .mlength = 1,
+    .method = SOCKS5_METHOD_NOAUTH,
+};
+
+/* socks5 udp4 association request constant */
+static const socks5_ipv4req_t G_SOCKS5_UDP4_REQUEST = {
+    .version = SOCKS5_VERSION,
+    .command = SOCKS5_COMMAND_UDPASSOCIATE,
+    .reserved = 0,
+    .addrtype = SOCKS5_ADDRTYPE_IPV4,
+    .ipaddr4 = 0,
+    .portnum = 0,
+};
+
+/* socks5 udp6 association request constant */
+static const socks5_ipv6req_t G_SOCKS5_UDP6_REQUEST = {
+    .version = SOCKS5_VERSION,
+    .command = SOCKS5_COMMAND_UDPASSOCIATE,
+    .reserved = 0,
+    .addrtype = SOCKS5_ADDRTYPE_IPV6,
+    .ipaddr6 = {0},
+    .portnum = 0,
+};
+
 /* print command help information */
 static void print_command_help(void) {
     printf("usage: ipt2socks <options...>. the existing options are as follows:\n"
