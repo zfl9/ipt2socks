@@ -582,8 +582,13 @@ static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_auth_read_cb);
 }
 
+/* populate the uvbuf structure before the read_cb call */
 static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
-    // TODO
+    (void) sugsize;
+    tcpcontext_t *context = stream->data;
+    bool is_socks5_stream = (void *)stream == (void *)context->socks5_stream;
+    uvbuf->base = is_socks5_stream ? context->socks5_buffer : context->client_buffer;
+    uvbuf->len = g_tcpbufsiz;
 }
 
 static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
