@@ -50,7 +50,7 @@ typedef struct {
     void     *client_buffer;
     void     *socks5_buffer;
     bool      is_half_close;
-} tcpdata_t;
+} tcpcontext_t;
 
 /* function declaration in advance */
 static void* run_event_loop(void *is_main_thread);
@@ -522,7 +522,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
         return;
     }
 
-    tcpdata_t *context = malloc(sizeof(tcpdata_t));
+    tcpcontext_t *context = malloc(sizeof(tcpcontext_t));
     context->client_stream = client_stream;
     context->socks5_stream = socks5_stream;
     context->client_buffer = malloc(g_tcpbufsiz);
@@ -553,9 +553,33 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
 /* successfully connected to the socks5 server */
 static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     uv_stream_t *socks5_stream = connreq->handle;
+    tcpcontext_t *context = socks5_stream->data;
+    uv_stream_t *client_stream = (void *)context->client_stream;
     free(connreq);
 
-    // TODO
+    if (status < 0) {
+        LOGERR("[tcp_socks5_tcp_connect_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
+        uv_close((void *)socks5_stream, tcp_stream_close_cb);
+        uv_close((void *)client_stream, tcp_stream_close_cb);
+        return;
+    }
+    IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] connected to the socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+
+    IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
+    status = uv_try_write(socks5_stream, uvbufs, 1);
+    if (status < 0) {
+        LOGERR("[tcp_socks5_tcp_connect_cb] failed to send authreq to socks5 server: (%d) %s", -status, uv_strerror(status));
+        uv_close((void *)socks5_stream, tcp_stream_close_cb);
+        uv_close((void *)client_stream, tcp_stream_close_cb);
+        return;
+    } else if (status < (int)sizeof(socks5_authreq_t)) {
+        LOGERR("[tcp_socks5_tcp_connect_cb] socks5 authreq was not completely sent: %d < %zu", status, sizeof(socks5_authreq_t));
+        uv_close((void *)socks5_stream, tcp_stream_close_cb);
+        uv_close((void *)client_stream, tcp_stream_close_cb);
+        return;
+    }
+    uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_auth_read_cb);
 }
 
 static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
