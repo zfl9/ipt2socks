@@ -48,13 +48,9 @@ static void* run_event_loop(void *is_main_thread);
 
 static void tcp_socket_listen_cb(uv_stream_t *listener, int status);
 static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
-static void tcp_socks5_auth_write_cb(uv_write_t *writereq, int status);
-static void tcp_socks5_auth_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
 static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
-static void tcp_socks5_conn_write_cb(uv_write_t *writereq, int status);
-static void tcp_socks5_conn_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
-static void tcp_socks5_conn_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
-static void tcp_stream_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_write_cb(uv_write_t *writereq, int status);
 static void tcp_stream_shutdn_cb(uv_shutdown_t *shdnreq, int status);
@@ -62,18 +58,19 @@ static void tcp_stream_close_cb(uv_handle_t *stream);
 
 static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events);
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
-static void udp_socks5_auth_write_cb(uv_write_t *writereq, int status);
-static void udp_socks5_auth_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
-static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
-static void udp_socks5_conn_write_cb(uv_write_t *writereq, int status);
-static void udp_socks5_conn_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
-static void udp_socks5_conn_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void udp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_socks5_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_socks5_tcp_close_cb(uv_handle_t *stream);
-static void udp_client_alloc_cb(uv_handle_t *handle, size_t sugsize, uv_buf_t *uvbuf);
-static void udp_client_recv_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags);
-static void udp_client_close_cb(uv_handle_t *handle);
+static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_client_recv_cb(uv_udp_t *client, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags);
+static void udp_client_close_cb(uv_handle_t *client);
+static void udp_caches_clt_timer_cb(uv_timer_t *timer);
+static void udp_caches_svr_timer_cb(uv_timer_t *timer);
+static void udp_caches_clt_free_cb(void *value);
+static void udp_caches_svr_free_cb(void *value);
+static void udp_timer_close_cb(uv_handle_t *timer);
 
 /* static global variable definition */
 static bool        g_verbose                 = false;
@@ -95,8 +92,8 @@ static skaddr6_t   g_server_skaddr           = {0};
 
 static uv_poll_t*  g_udp_listener4           = NULL;
 static uv_poll_t*  g_udp_listener6           = NULL;
-static lrucache_t* g_udp_clntcache           = NULL;
-static lrucache_t* g_udp_servcache           = NULL;
+static lrucache_t* g_udp_cltcaches           = NULL;
+static lrucache_t* g_udp_svrcaches           = NULL;
 
 /* print command help information */
 static void print_command_help(void) {
@@ -420,4 +417,100 @@ static void* run_event_loop(void *is_main_thread) {
     /* run event loop (blocking here) */
     uv_run(evloop, UV_RUN_DEFAULT);
     return NULL;
+}
+
+static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
+    // TODO
+}
+
+static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
+    // TODO
+}
+
+static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void tcp_stream_write_cb(uv_write_t *writereq, int status) {
+    // TODO
+}
+
+static void tcp_stream_shutdn_cb(uv_shutdown_t *shdnreq, int status) {
+    // TODO
+}
+
+static void tcp_stream_close_cb(uv_handle_t *stream) {
+    // TODO
+}
+
+static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
+    // TODO
+}
+
+static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
+    // TODO
+}
+
+static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void udp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void udp_socks5_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void udp_socks5_tcp_close_cb(uv_handle_t *stream) {
+    // TODO
+}
+
+static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *uvbuf) {
+    // TODO
+}
+
+static void udp_client_recv_cb(uv_udp_t *client, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags) {
+    // TODO
+}
+
+static void udp_client_close_cb(uv_handle_t *client) {
+    // TODO
+}
+
+static void udp_caches_clt_timer_cb(uv_timer_t *timer) {
+    // TODO
+}
+
+static void udp_caches_svr_timer_cb(uv_timer_t *timer) {
+    // TODO
+}
+
+static void udp_caches_clt_free_cb(void *value) {
+    // TODO
+}
+
+static void udp_caches_svr_free_cb(void *value) {
+    // TODO
+}
+
+static void udp_timer_close_cb(uv_handle_t *timer) {
+    // TODO
 }
