@@ -14,11 +14,11 @@
 
 /* option flags */
 enum {
-    OPTION_TCP     = 1 << 0, /* enable tcp */
-    OPTION_UDP     = 1 << 1, /* enable udp */
-    OPTION_IPV4    = 1 << 2, /* enable ipv4 */
-    OPTION_IPV6    = 1 << 3, /* enable ipv6 */
-    OPTION_DNAT    = 1 << 4, /* use REDIRECT instead of TPROXY (for tcp) */
+    OPTION_TCP     = 0x01 << 0, /* enable tcp */
+    OPTION_UDP     = 0x01 << 1, /* enable udp */
+    OPTION_IPV4    = 0x01 << 2, /* enable ipv4 */
+    OPTION_IPV6    = 0x01 << 3, /* enable ipv6 */
+    OPTION_DNAT    = 0x01 << 4, /* use REDIRECT instead of TPROXY (for tcp) */
     OPTION_DEFAULT = OPTION_TCP | OPTION_UDP | OPTION_IPV4 | OPTION_IPV6, /* default behavior */
 };
 
@@ -321,6 +321,10 @@ int main(int argc, char* argv[]) {
 
 /* event loop */
 static void* run_event_loop(void *is_main_thread) {
+    uv_loop_t *loop = &(uv_loop_t){0};
+    uv_loop_init(loop);
+
     // TODO
+
     return NULL;
 }
