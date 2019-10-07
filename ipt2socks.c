@@ -66,6 +66,9 @@ static uv_poll_t*  g_udp_listener6           = NULL;
 static lrucache_t* g_udp_clntcache           = NULL;
 static lrucache_t* g_udp_servcache           = NULL;
 
+/* function declaration in advance */
+static void* run_event_loop(void *is_main_thread);
+
 /* print command help information */
 static void print_command_help(void) {
     printf("usage: ipt2socks <options...>. the existing options are as follows:\n"
@@ -305,7 +308,20 @@ int main(int argc, char* argv[]) {
     if (g_options & OPTION_DNAT) LOGINF("[main] use redirect instead of tproxy");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
-    // TODO
+    pthread_t tids[g_nthreads - 1];
+    for (int i = 0; i < g_nthreads - 1; ++i) {
+        if (pthread_create(tids + i, NULL, run_event_loop, NULL)) {
+            LOGERR("[main] failed to create thread: (%d) %s", errno, errstring(errno));
+            return errno;
+        }
+    }
+    run_event_loop((void *)1); /* blocking here */
 
     return 0;
+}
+
+/* event loop */
+static void* run_event_loop(void *is_main_thread) {
+    // TODO
+    return NULL;
 }
