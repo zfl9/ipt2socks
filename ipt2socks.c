@@ -46,9 +46,34 @@ enum {
 /* function declaration in advance */
 static void* run_event_loop(void *is_main_thread);
 
-static void tcp_listen_cb(uv_stream_t *listener, int status);
+static void tcp_socket_listen_cb(uv_stream_t *listener, int status);
+static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
+static void tcp_socks5_auth_write_cb(uv_write_t *writereq, int status);
+static void tcp_socks5_auth_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void tcp_socks5_conn_write_cb(uv_write_t *writereq, int status);
+static void tcp_socks5_conn_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void tcp_socks5_conn_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void tcp_stream_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void tcp_stream_write_cb(uv_write_t *writereq, int status);
+static void tcp_stream_shutdn_cb(uv_shutdown_t *shdnreq, int status);
+static void tcp_stream_close_cb(uv_handle_t *stream);
 
-static void udp_listen_cb(uv_poll_t *listener, int status, int events);
+static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events);
+static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
+static void udp_socks5_auth_write_cb(uv_write_t *writereq, int status);
+static void udp_socks5_auth_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void udp_socks5_conn_write_cb(uv_write_t *writereq, int status);
+static void udp_socks5_conn_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_socks5_conn_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_socks5_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void udp_socks5_tcp_close_cb(uv_handle_t *stream);
+static void udp_client_alloc_cb(uv_handle_t *handle, size_t sugsize, uv_buf_t *uvbuf);
+static void udp_client_recv_cb(uv_udp_t *handle, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags);
+static void udp_client_close_cb(uv_handle_t *handle);
 
 /* static global variable definition */
 static bool        g_verbose                 = false;
@@ -342,7 +367,7 @@ static void* run_event_loop(void *is_main_thread) {
                 exit(-retval);
             }
 
-            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_listen_cb);
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_socket_listen_cb);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to listen address for tcp4 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
@@ -361,7 +386,7 @@ static void* run_event_loop(void *is_main_thread) {
                 exit(-retval);
             }
 
-            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_listen_cb);
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_socket_listen_cb);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to listen address for tcp6 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
@@ -378,7 +403,7 @@ static void* run_event_loop(void *is_main_thread) {
             }
             g_udp_listener4 = malloc(sizeof(uv_poll_t));
             uv_poll_init(evloop, g_udp_listener4, sockfd);
-            uv_poll_start(g_udp_listener4, UV_READABLE, udp_listen_cb);
+            uv_poll_start(g_udp_listener4, UV_READABLE, udp_socket_listen_cb);
         }
         if (g_options & OPTION_IPV6) {
             int sockfd = new_udp6_bindsock_tproxy();
@@ -388,7 +413,7 @@ static void* run_event_loop(void *is_main_thread) {
             }
             g_udp_listener6 = malloc(sizeof(uv_poll_t));
             uv_poll_init(evloop, g_udp_listener6, sockfd);
-            uv_poll_start(g_udp_listener6, UV_READABLE, udp_listen_cb);
+            uv_poll_start(g_udp_listener6, UV_READABLE, udp_socket_listen_cb);
         }
         g_udp_clntcache = lrucache_new();
         g_udp_servcache = lrucache_new();
@@ -399,10 +424,10 @@ static void* run_event_loop(void *is_main_thread) {
     return NULL;
 }
 
-static void tcp_listen_cb(uv_stream_t *listener, int status) {
+static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     // TODO
 }
 
-static void udp_listen_cb(uv_poll_t *listener, int status, int events) {
+static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
     // TODO
 }
