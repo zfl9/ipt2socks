@@ -43,6 +43,15 @@ enum {
 /* ipt2socks version string */
 #define IPT2SOCKS_VERSION "ipt2socks v1.0-beta.1 <https://github.com/zfl9/ipt2socks>"
 
+/* tcp stream context typedef */
+typedef struct {
+    uv_tcp_t *client_stream;
+    uv_tcp_t *socks5_stream;
+    void     *client_buffer;
+    void     *socks5_buffer;
+    bool      is_half_close;
+} tcpdata_t;
+
 /* function declaration in advance */
 static void* run_event_loop(void *is_main_thread);
 
@@ -127,7 +136,7 @@ static void print_command_help(void) {
     printf("usage: ipt2socks <options...>. the existing options are as follows:\n"
            " -s, --server-addr <addr>           socks5 server ip address, <required>\n"
            " -p, --server-port <port>           socks5 server port number, <required>\n"
-           " -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1\n" 
+           " -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1\n"
            " -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1\n"
            " -l, --listen-port <port>           listen port number, default: 60080\n"
            " -j, --thread-nums <num>            number of worker threads, default: 1\n"
@@ -446,11 +455,105 @@ static void* run_event_loop(void *is_main_thread) {
     return NULL;
 }
 
+/* handling new tcp client connections */
 static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
-    // TODO
+    bool isipv4 = listener->data != NULL;
+
+    if (status < 0) {
+        LOGERR("[tcp_socket_listen_cb] failed to accept tcp%c socket: (%d) %s", isipv4 ? '4' : '6', -status, uv_strerror(status));
+        return;
+    }
+
+    uv_tcp_t *client_stream = calloc(1, sizeof(uv_tcp_t));
+    uv_tcp_init(listener->loop, client_stream);
+    uv_tcp_nodelay(client_stream, 1);
+
+    status = uv_accept(listener, (void *)client_stream);
+    if (status < 0) {
+        LOGERR("[tcp_socket_listen_cb] failed to accept tcp%c socket: (%d) %s", isipv4 ? '4' : '6', -status, uv_strerror(status));
+        uv_close((void *)client_stream, tcp_stream_close_cb);
+        return;
+    }
+
+    int sockfd = -1;
+    uv_fileno((void *)client_stream, &sockfd);
+    skaddr6_t skaddr; char ipstr[IP6STRLEN]; portno_t portno;
+
+    IF_VERBOSE {
+        getpeername(sockfd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
+        if (isipv4) {
+            parse_ipv4_addr((void *)&skaddr, ipstr, &portno);
+        } else {
+            parse_ipv6_addr((void *)&skaddr, ipstr, &portno);
+        }
+        LOGINF("[tcp_socket_listen_cb] accept new tcp connection: %s#%hu", ipstr, portno);
+    }
+
+    if (g_options & OPTION_DNAT) {
+        if (!(isipv4 ? get_tcp_origdstaddr4(sockfd, (void *)&skaddr) : get_tcp_origdstaddr6(sockfd, (void *)&skaddr))) {
+            uv_close((void *)client_stream, tcp_stream_close_cb);
+            return;
+        }
+    } else {
+        getsockname(sockfd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
+    }
+
+    IF_VERBOSE {
+        if (isipv4) {
+            parse_ipv4_addr((void *)&skaddr, ipstr, &portno);
+        } else {
+            parse_ipv6_addr((void *)&skaddr, ipstr, &portno);
+        }
+        LOGINF("[tcp_socket_listen_cb] original destination addr: %s#%hu", ipstr, portno);
+    }
+
+    uv_tcp_t *socks5_stream = calloc(1, sizeof(uv_tcp_t));
+    uv_tcp_init(listener->loop, socks5_stream);
+    uv_tcp_nodelay(socks5_stream, 1);
+
+    uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
+    status = uv_tcp_connect(connreq, socks5_stream, (void *)&g_server_skaddr, tcp_socks5_tcp_connect_cb);
+    if (status < 0) {
+        LOGERR("[tcp_socket_listen_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
+        uv_close((void *)client_stream, tcp_stream_close_cb);
+        uv_close((void *)socks5_stream, tcp_stream_close_cb);
+        free(connreq);
+        return;
+    }
+
+    tcpdata_t *context = malloc(sizeof(tcpdata_t));
+    context->client_stream = client_stream;
+    context->socks5_stream = socks5_stream;
+    context->client_buffer = malloc(g_tcpbufsiz);
+    context->socks5_buffer = malloc(g_tcpbufsiz);
+    context->is_half_close = false;
+    client_stream->data = context;
+    socks5_stream->data = context;
+
+    if (isipv4) {
+        socks5_ipv4req_t *proxyreq = context->client_buffer;
+        proxyreq->version = SOCKS5_VERSION;
+        proxyreq->command = SOCKS5_COMMAND_CONNECT;
+        proxyreq->reserved = 0;
+        proxyreq->addrtype = SOCKS5_ADDRTYPE_IPV4;
+        proxyreq->ipaddr4 = ((skaddr4_t *)&skaddr)->sin_addr.s_addr;
+        proxyreq->portnum = ((skaddr4_t *)&skaddr)->sin_port;
+    } else {
+        socks5_ipv6req_t *proxyreq = context->client_buffer;
+        proxyreq->version = SOCKS5_VERSION;
+        proxyreq->command = SOCKS5_COMMAND_CONNECT;
+        proxyreq->reserved = 0;
+        proxyreq->addrtype = SOCKS5_ADDRTYPE_IPV6;
+        memcpy(&proxyreq->ipaddr6, &skaddr.sin6_addr.s6_addr, IP6BINLEN);
+        proxyreq->portnum = skaddr.sin6_port;
+    }
 }
 
+/* successfully connected to the socks5 server */
 static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
+    uv_stream_t *socks5_stream = connreq->handle;
+    free(connreq);
+
     // TODO
 }
 
