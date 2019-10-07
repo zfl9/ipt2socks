@@ -46,7 +46,9 @@ enum {
 /* function declaration in advance */
 static void* run_event_loop(void *is_main_thread);
 
-static void tcp_accept_cb(uv_stream_t *listener, int status);
+static void tcp_listen_cb(uv_stream_t *listener, int status);
+
+static void udp_listen_cb(uv_poll_t *listener, int status, int events);
 
 /* static global variable definition */
 static bool        g_verbose                 = false;
@@ -330,14 +332,17 @@ static void* run_event_loop(void *is_main_thread) {
         if (g_options & OPTION_IPV4) {
             uv_tcp_t *tcplistener = malloc(sizeof(uv_tcp_t));
             tcplistener->data = (void *)1; /* is_ipv4 */
+
             uv_tcp_init(evloop, tcplistener);
             uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp4_bindsock() : new_tcp4_bindsock_tproxy());
+
             int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr4, 0);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to bind address for tcp4 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
             }
-            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_accept_cb);
+
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_listen_cb);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to listen address for tcp4 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
@@ -346,14 +351,17 @@ static void* run_event_loop(void *is_main_thread) {
         if (g_options & OPTION_IPV6) {
             uv_tcp_t *tcplistener = malloc(sizeof(uv_tcp_t));
             tcplistener->data = NULL; /* is_ipv4 */
+
             uv_tcp_init(evloop, tcplistener);
             uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp6_bindsock() : new_tcp6_bindsock_tproxy());
+
             int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr6, 0);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to bind address for tcp6 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
             }
-            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_accept_cb);
+
+            retval = uv_listen((void *)tcplistener, SOMAXCONN, tcp_listen_cb);
             if (retval < 0) {
                 LOGERR("[run_event_loop] failed to listen address for tcp6 socket: (%d) %s", -retval, uv_strerror(retval));
                 exit(-retval);
@@ -362,13 +370,39 @@ static void* run_event_loop(void *is_main_thread) {
     }
 
     if ((g_options & OPTION_UDP) && is_main_thread) {
-        // TODO
+        if (g_options & OPTION_IPV4) {
+            int sockfd = new_udp4_bindsock_tproxy();
+            if (bind(sockfd, (void *)&g_bind_skaddr4, sizeof(skaddr4_t)) < 0) {
+                LOGERR("[run_event_loop] failed to bind address for udp4 socket: (%d) %s", errno, errstring(errno));
+                exit(errno);
+            }
+            g_udp_listener4 = malloc(sizeof(uv_poll_t));
+            uv_poll_init(evloop, g_udp_listener4, sockfd);
+            uv_poll_start(g_udp_listener4, UV_READABLE, udp_listen_cb);
+        }
+        if (g_options & OPTION_IPV6) {
+            int sockfd = new_udp6_bindsock_tproxy();
+            if (bind(sockfd, (void *)&g_bind_skaddr6, sizeof(skaddr6_t)) < 0) {
+                LOGERR("[run_event_loop] failed to bind address for udp6 socket: (%d) %s", errno, errstring(errno));
+                exit(errno);
+            }
+            g_udp_listener6 = malloc(sizeof(uv_poll_t));
+            uv_poll_init(evloop, g_udp_listener6, sockfd);
+            uv_poll_start(g_udp_listener6, UV_READABLE, udp_listen_cb);
+        }
+        g_udp_clntcache = lrucache_new();
+        g_udp_servcache = lrucache_new();
     }
 
+    /* run event loop (blocking here) */
     uv_run(evloop, UV_RUN_DEFAULT);
     return NULL;
 }
 
-static void tcp_accept_cb(uv_stream_t *listener, int status) {
+static void tcp_listen_cb(uv_stream_t *listener, int status) {
+    // TODO
+}
+
+static void udp_listen_cb(uv_poll_t *listener, int status, int events) {
     // TODO
 }
