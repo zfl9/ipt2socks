@@ -415,19 +415,9 @@ static void* run_event_loop(void *is_main_thread) {
             uv_poll_init(evloop, g_udp_listener6, sockfd);
             uv_poll_start(g_udp_listener6, UV_READABLE, udp_socket_listen_cb);
         }
-        g_udp_clntcache = lrucache_new();
-        g_udp_servcache = lrucache_new();
     }
 
     /* run event loop (blocking here) */
     uv_run(evloop, UV_RUN_DEFAULT);
     return NULL;
-}
-
-static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
-    // TODO
-}
-
-static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
-    // TODO
 }
