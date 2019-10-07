@@ -43,6 +43,9 @@ enum {
 /* ipt2socks version string */
 #define IPT2SOCKS_VERSION "ipt2socks v1.0-beta.1 <https://github.com/zfl9/ipt2socks>"
 
+/* function declaration in advance */
+static void* run_event_loop(void *is_main_thread);
+
 /* static global variable definition */
 static bool        g_verbose                 = false;
 static uint8_t     g_options                 = OPTION_DEFAULT;
@@ -65,9 +68,6 @@ static uv_poll_t*  g_udp_listener4           = NULL;
 static uv_poll_t*  g_udp_listener6           = NULL;
 static lrucache_t* g_udp_clntcache           = NULL;
 static lrucache_t* g_udp_servcache           = NULL;
-
-/* function declaration in advance */
-static void* run_event_loop(void *is_main_thread);
 
 /* print command help information */
 static void print_command_help(void) {
