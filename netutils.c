@@ -278,28 +278,28 @@ void run_as_user(const char *username, char *const argv[]) {
     }
 
     if (setgid(userinfo->pw_gid) < 0) {
-        LOGERR("[run_as_user] failed to change group_id of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        LOGERR("[run_as_user] failed to change group_id of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
         exit(errno);
     }
 
     if (initgroups(userinfo->pw_name, userinfo->pw_gid) < 0) {
-        LOGERR("[run_as_user] failed to call initgroups() of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        LOGERR("[run_as_user] failed to call initgroups() of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
         exit(errno);
     }
 
     if (setuid(userinfo->pw_uid) < 0) {
-        LOGERR("[run_as_user] failed to change user_id of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        LOGERR("[run_as_user] failed to change user_id of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
         exit(errno);
     }
 
     static char exec_file_abspath[PATH_MAX] = {0};
     if (readlink("/proc/self/exe", exec_file_abspath, PATH_MAX - 1) < 0) {
-        LOGERR("[run_as_user] failed to get the abspath of execfile: (%d) %s", errno, strerror(errno));
+        LOGERR("[run_as_user] failed to get the abspath of execfile: (%d) %s", errno, errstring(errno));
         exit(errno);
     }
 
     if (argv && execv(exec_file_abspath, argv) < 0) {
-        LOGERR("[run_as_user] failed to call execv(%s, args): (%d) %s", exec_file_abspath, errno, strerror(errno));
+        LOGERR("[run_as_user] failed to call execv(%s, args): (%d) %s", exec_file_abspath, errno, errstring(errno));
         exit(errno);
     }
 }
