@@ -629,7 +629,7 @@ static void tcp_socks5_auth_read_cb(uv_stream_t *socks5_stream, ssize_t nread, c
         LOGERR("[tcp_socks5_auth_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
         goto CLOSE_STREAM_PAIR;
     } else if (nread < length) {
-        LOGERR("[tcp_socks5_tcp_connect_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
+        LOGERR("[tcp_socks5_auth_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
         goto CLOSE_STREAM_PAIR;
     }
     uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_resp_read_cb);
@@ -640,6 +640,7 @@ CLOSE_STREAM_PAIR:
     uv_close((void *)client_stream, tcp_stream_close_cb);
 }
 
+/* receive socks5-proxy response from the socks5 server */
 static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
     // TODO
 }
