@@ -99,8 +99,6 @@ static char        g_server_ipstr[IP6STRLEN] = {0};
 static portno_t    g_server_portno           = 0;
 static skaddr6_t   g_server_skaddr           = {0};
 
-static uv_poll_t*  g_udp_listener4           = NULL;
-static uv_poll_t*  g_udp_listener6           = NULL;
 static lrucache_t* g_udp_cltcaches           = NULL;
 static lrucache_t* g_udp_svrcaches           = NULL;
 
@@ -439,9 +437,9 @@ static void* run_event_loop(void *is_main_thread) {
                 LOGERR("[run_event_loop] failed to bind address for udp4 socket: (%d) %s", errno, errstring(errno));
                 exit(errno);
             }
-            g_udp_listener4 = malloc(sizeof(uv_poll_t));
-            uv_poll_init(evloop, g_udp_listener4, sockfd);
-            uv_poll_start(g_udp_listener4, UV_READABLE, udp_socket_listen_cb);
+            uv_poll_t *udplistener = malloc(sizeof(uv_poll_t));
+            uv_poll_init(evloop, udplistener, sockfd);
+            uv_poll_start(udplistener, UV_READABLE, udp_socket_listen_cb);
         }
         if (g_options & OPTION_IPV6) {
             int sockfd = new_udp6_bindsock_tproxy();
@@ -449,9 +447,9 @@ static void* run_event_loop(void *is_main_thread) {
                 LOGERR("[run_event_loop] failed to bind address for udp6 socket: (%d) %s", errno, errstring(errno));
                 exit(errno);
             }
-            g_udp_listener6 = malloc(sizeof(uv_poll_t));
-            uv_poll_init(evloop, g_udp_listener6, sockfd);
-            uv_poll_start(g_udp_listener6, UV_READABLE, udp_socket_listen_cb);
+            uv_poll_t *udplistener = malloc(sizeof(uv_poll_t));
+            uv_poll_init(evloop, udplistener, sockfd);
+            uv_poll_start(udplistener, UV_READABLE, udp_socket_listen_cb);
         }
     }
 
