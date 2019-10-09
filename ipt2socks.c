@@ -45,11 +45,13 @@ enum {
 
 /* tcp stream context typedef */
 typedef struct {
-    uv_tcp_t *client_stream;
-    uv_tcp_t *socks5_stream;
-    void     *client_buffer;
-    void     *socks5_buffer;
-    bool      is_half_close;
+    uv_tcp_t   *client_stream;
+    uv_tcp_t   *socks5_stream;
+    void       *client_buffer;
+    void       *socks5_buffer;
+    uv_write_t *client_wrtreq;
+    uv_write_t *socks5_wrtreq;
+    bool        is_half_close;
 } tcpcontext_t;
 
 /* function declaration in advance */
@@ -62,7 +64,6 @@ static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv
 static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_write_cb(uv_write_t *writereq, int status);
-static void tcp_stream_shutdn_cb(uv_shutdown_t *shdnreq, int status);
 static void tcp_stream_close_cb(uv_handle_t *stream);
 
 static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events);
@@ -529,6 +530,8 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     context->socks5_stream = socks5_stream;
     context->client_buffer = malloc(g_tcpbufsiz);
     context->socks5_buffer = malloc(g_tcpbufsiz);
+    context->client_wrtreq = malloc(sizeof(uv_write_t));
+    context->socks5_wrtreq = malloc(sizeof(uv_write_t));
     context->is_half_close = false;
     client_stream->data = context;
     socks5_stream->data = context;
@@ -688,20 +691,86 @@ CLOSE_STREAM_PAIR:
     uv_close((void *)client_stream, tcp_stream_close_cb);
 }
 
-static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
-    // TODO
+/* read data from one end and forward it to the other end */
+static void tcp_stream_read_cb(uv_stream_t *selfstream, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    tcpcontext_t *context = selfstream->data;
+    bool is_socks5_stream = (void *)selfstream == (void *)context->socks5_stream;
+    uv_stream_t *peerstream = is_socks5_stream ? (void *)context->client_stream : (void *)context->socks5_stream;
+
+    if (nread == UV_EOF) {
+        if (context->is_half_close) {
+            IF_VERBOSE LOGINF("[tcp_stream_read_cb] tcp connection has been closed in both directions");
+            goto CLOSE_STREAM_PAIR;
+        } else {
+            int sockfd = -1;
+            uv_fileno((void *)peerstream, &sockfd);
+            if (shutdown(sockfd, SHUT_WR) < 0) {
+                LOGERR("[tcp_stream_read_cb] failed to send EOF to peer stream: (%d) %s", errno, errstring(errno));
+                goto CLOSE_STREAM_PAIR;
+            }
+            uv_read_stop(selfstream);
+            context->is_half_close = true;
+            return;
+        }
+    }
+
+    if (nread < 0) {
+        LOGERR("[tcp_stream_read_cb] failed to read data from tcp stream: (%zd) %s", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    uv_buf_t uvbufs[] = {{.base = uvbuf->base, .len = nread}};
+    nread = uv_try_write(peerstream, uvbufs, 1);
+    if (nread < (ssize_t)uvbufs[0].len) {
+        if (nread > 0) {
+            uvbufs[0].base += nread;
+            uvbufs[0].len -= (size_t)nread;
+        }
+        uv_write_t *writereq = is_socks5_stream ? context->socks5_wrtreq : context->client_wrtreq; 
+        uv_write(writereq, peerstream, uvbufs, 1, tcp_stream_write_cb);
+        uv_read_stop(selfstream);
+    }
+    return;
+
+CLOSE_STREAM_PAIR:
+    uv_close((void *)selfstream, tcp_stream_close_cb);
+    uv_close((void *)peerstream, tcp_stream_close_cb);
 }
 
 static void tcp_stream_write_cb(uv_write_t *writereq, int status) {
-    // TODO
-}
+    if (status == UV_ECANCELED) return;
 
-static void tcp_stream_shutdn_cb(uv_shutdown_t *shdnreq, int status) {
-    // TODO
+    uv_stream_t *selfstream = writereq->handle;
+    tcpcontext_t *context = selfstream->data;
+    bool is_socks5_stream = (void *)selfstream == (void *)context->socks5_stream;
+    uv_stream_t *peerstream = is_socks5_stream ? (void *)context->client_stream : (void *)context->socks5_stream;
+
+    if (status < 0) {
+        LOGERR("[tcp_stream_write_cb] failed to write data to tcp stream: (%d) %s", -status, uv_strerror(status));
+        uv_close((void *)selfstream, tcp_stream_close_cb);
+        uv_close((void *)peerstream, tcp_stream_close_cb);
+        return;
+    }
+
+    uv_read_start(peerstream, tcp_common_alloc_cb, tcp_stream_read_cb);
 }
 
 static void tcp_stream_close_cb(uv_handle_t *stream) {
-    // TODO
+    tcpcontext_t *context = stream->data;
+    if (context) {
+        if ((void *)stream == (void *)context->socks5_stream) {
+            context->client_stream->data = NULL;
+        } else {
+            context->socks5_stream->data = NULL;
+        }
+        free(context->client_buffer);
+        free(context->socks5_buffer);
+        free(context->client_wrtreq);
+        free(context->socks5_wrtreq);
+        free(context);
+    }
+    free(stream);
 }
 
 static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
