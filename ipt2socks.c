@@ -277,6 +277,8 @@ static void parse_command_args(int argc, char* argv[]) {
                 break;
             case 'R':
                 g_options |= OPTION_DNAT;
+                strcpy(g_bind_ipstr4, IP4STR_WILDCARD);
+                strcpy(g_bind_ipstr6, IP6STR_WILDCARD);
                 break;
             case 'T':
                 g_options &= ~OPTION_UDP;
@@ -334,11 +336,6 @@ static void parse_command_args(int argc, char* argv[]) {
     }
 
     if (!(g_options & OPTION_TCP)) g_nthreads = 1;
-
-    if (g_options & OPTION_DNAT) {
-        strcpy(g_bind_ipstr4, IP4STR_WILDCARD);
-        strcpy(g_bind_ipstr6, IP6STR_WILDCARD);
-    }
 
     build_ipv4_addr(&g_bind_skaddr4, g_bind_ipstr4, g_bind_portno);
     build_ipv6_addr(&g_bind_skaddr6, g_bind_ipstr6, g_bind_portno);
