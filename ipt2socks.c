@@ -144,6 +144,7 @@ static void print_command_help(void) {
            " -o, --udp-timeout <sec>            udp socket idle timeout, default: 300\n"
            " -c, --cache-size <size>            max size of udp lrucache, default: 256\n"
            " -f, --buffer-size <size>           buffer size of tcp socket, default: 8192\n"
+           " -u, --run-user <user>              run the ipt2socks with the specified user\n"
            " -R, --redirect                     use redirect instead of tproxy (for tcp)\n"
            " -T, --tcp-only                     listen tcp only, aka: disable udp proxy\n"
            " -U, --udp-only                     listen udp only, aka: disable tcp proxy\n"
@@ -157,7 +158,7 @@ static void print_command_help(void) {
 
 /* parsing command line arguments */
 static void parse_command_args(int argc, char* argv[]) {
-    const char *optstr = ":s:p:b:B:l:j:n:o:c:f:RTU46vVh";
+    const char *optstr = ":s:p:b:B:l:j:n:o:c:f:u:RTU46vVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -169,6 +170,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"udp-timeout",   required_argument, NULL, 'o'},
         {"cache-size",    required_argument, NULL, 'c'},
         {"buffer-size",   required_argument, NULL, 'f'},
+        {"run-user",      required_argument, NULL, 'u'},
         {"redirect",      no_argument,       NULL, 'R'},
         {"tcp-only",      no_argument,       NULL, 'T'},
         {"udp-only",      no_argument,       NULL, 'U'},
@@ -271,6 +273,9 @@ static void parse_command_args(int argc, char* argv[]) {
                     printf("[parse_command_args] buffer should have at least 1024B: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
+                break;
+            case 'u':
+                run_as_user(optarg, argv);
                 break;
             case 'R':
                 g_options |= OPTION_DNAT;
