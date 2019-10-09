@@ -139,6 +139,9 @@ int get_ipstr_family(const char *ipstr);
 /* set nofile limit (may require root privileges) */
 void set_nofile_limit(rlim_t nofile);
 
+/* run the current process with a given user */
+void run_as_user(const char *username, char *const argv[]);
+
 /* strerror thread safe version (libuv) */
 #define errstring(errnum) uv_strerror(-(errnum))
 

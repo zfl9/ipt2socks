@@ -4,7 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <unistd.h>
 #include <arpa/inet.h>
+#include <sys/types.h>
+#include <linux/limits.h>
+#include <pwd.h>
+#include <grp.h>
 #undef _GNU_SOURCE
 
 #ifndef SO_ORIGINAL_DST
@@ -258,6 +263,43 @@ int get_ipstr_family(const char *ipstr) {
 void set_nofile_limit(rlim_t nofile) {
     if (setrlimit(RLIMIT_NOFILE, &(struct rlimit){nofile, nofile}) < 0) {
         LOGERR("[set_nofile_limit] setrlimit(nofile, %lu): (%d) %s", nofile, errno, errstring(errno));
+        exit(errno);
+    }
+}
+
+/* run the current process with a given user */
+void run_as_user(const char *username, char *const argv[]) {
+    if (geteuid() != 0) return; /* ignore if current user is not root */
+
+    struct passwd *userinfo = getpwnam(username);
+    if (!userinfo) {
+        LOGERR("[run_as_user] the given user does not exist: %s", username);
+        exit(1);
+    }
+
+    if (setgid(userinfo->pw_gid) < 0) {
+        LOGERR("[run_as_user] failed to change group_id of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        exit(errno);
+    }
+
+    if (initgroups(userinfo->pw_name, userinfo->pw_gid) < 0) {
+        LOGERR("[run_as_user] failed to call initgroups() of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        exit(errno);
+    }
+
+    if (setuid(userinfo->pw_uid) < 0) {
+        LOGERR("[run_as_user] failed to change user_id of user '%s': (%d) %s", userinfo->pw_name, errno, strerror(errno));
+        exit(errno);
+    }
+
+    static char exec_file_abspath[PATH_MAX] = {0};
+    if (readlink("/proc/self/exe", exec_file_abspath, PATH_MAX - 1) < 0) {
+        LOGERR("[run_as_user] failed to get the abspath of execfile: (%d) %s", errno, strerror(errno));
+        exit(errno);
+    }
+
+    if (argv && execv(exec_file_abspath, argv) < 0) {
+        LOGERR("[run_as_user] failed to call execv(%s, args): (%d) %s", exec_file_abspath, errno, strerror(errno));
         exit(errno);
     }
 }
