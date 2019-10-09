@@ -435,6 +435,7 @@ static void* run_event_loop(void *is_main_thread) {
                 exit(errno);
             }
             uv_poll_t *udplistener = malloc(sizeof(uv_poll_t));
+            udplistener->data = (void *)1; /* is_ipv4 */
             uv_poll_init(evloop, udplistener, sockfd);
             uv_poll_start(udplistener, UV_READABLE, udp_socket_listen_cb);
         }
@@ -445,6 +446,7 @@ static void* run_event_loop(void *is_main_thread) {
                 exit(errno);
             }
             uv_poll_t *udplistener = malloc(sizeof(uv_poll_t));
+            udplistener->data = NULL; /* is_ipv4 */
             uv_poll_init(evloop, udplistener, sockfd);
             uv_poll_start(udplistener, UV_READABLE, udp_socket_listen_cb);
         }
