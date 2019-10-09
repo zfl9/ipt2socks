@@ -99,8 +99,8 @@ static char        g_server_ipstr[IP6STRLEN] = {0};
 static portno_t    g_server_portno           = 0;
 static skaddr6_t   g_server_skaddr           = {0};
 
-static lrucache_t* g_udp_cltcaches           = NULL;
-static lrucache_t* g_udp_svrcaches           = NULL;
+static lrucache_t* g_udpclt_cache           = NULL;
+static lrucache_t* g_udpsvr_cache           = NULL;
 
 /* socks5 authentication request constant */
 static const socks5_authreq_t G_SOCKS5_AUTH_REQUEST = {
