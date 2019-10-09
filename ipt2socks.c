@@ -641,8 +641,51 @@ CLOSE_STREAM_PAIR:
 }
 
 /* receive socks5-proxy response from the socks5 server */
-static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
-    // TODO
+static void tcp_socks5_resp_read_cb(uv_stream_t *socks5_stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(socks5_stream);
+    tcpcontext_t *context = socks5_stream->data;
+    uv_stream_t *client_stream = (void *)context->client_stream;
+
+    if (nread < 0) {
+        LOGERR("[tcp_socks5_resp_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    socks5_ipv4req_t *proxyreq = context->client_buffer;
+    bool isipv4 = proxyreq->addrtype == SOCKS5_ADDRTYPE_IPV4;
+    int length = isipv4 ? sizeof(socks5_ipv4resp_t) : sizeof(socks5_ipv6resp_t);
+    if (nread != length) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response length is incorrect: %zd != %d", nread, length);
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    socks5_ipv4resp_t *proxyresp = (void *)uvbuf->base;
+    if (proxyresp->version != SOCKS5_VERSION) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response version is not SOCKS5: %#hhx", proxyresp->version);
+        goto CLOSE_STREAM_PAIR;
+    }
+    if (proxyresp->respcode != SOCKS5_RESPCODE_SUCCEEDED) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response respcode is not SUCC: (%#hhx) %s", proxyresp->respcode, socks5_rcode2string(proxyresp->respcode));
+        goto CLOSE_STREAM_PAIR;
+    }
+    if (proxyresp->reserved != 0) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response reserved is not zero: %#hhx", proxyresp->reserved);
+        goto CLOSE_STREAM_PAIR;
+    }
+    if (proxyresp->addrtype != (isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6)) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response addrtype is not ipv%c: %#hhx", isipv4 ? '4' : '6', proxyresp->addrtype);
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    IF_VERBOSE LOGINF("[tcp_socks5_resp_read_cb] connected to the target host, start forwarding");
+    uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_stream_read_cb);
+    uv_read_start(client_stream, tcp_common_alloc_cb, tcp_stream_read_cb);
+    return;
+
+CLOSE_STREAM_PAIR:
+    uv_close((void *)socks5_stream, tcp_stream_close_cb);
+    uv_close((void *)client_stream, tcp_stream_close_cb);
 }
 
 static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
