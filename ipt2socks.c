@@ -790,11 +790,12 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
     }
 
     skaddr6_t source_skaddr = {0};
-    char cntl_buffer[UDP_MSGCTL_BUFSIZE] = {0};
+    char *packetbuf = g_udp_packetbuf;
     struct iovec iov = {
-        .iov_base = g_udp_packetbuf + udpmsghdrlen,
+        .iov_base = packetbuf + udpmsghdrlen,
         .iov_len = UDP_PACKET_MAXSIZE - udpmsghdrlen,
     };
+    char cntl_buffer[UDP_MSGCTL_BUFSIZE] = {0};
     struct msghdr msg = {
         .msg_name = &source_skaddr,
         .msg_namelen = sizeof(source_skaddr),
@@ -809,7 +810,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
 
     ssize_t nread = recvmsg(sockfd, &msg, 0);
     if (nread < 0) {
-        LOGERR("[udp_socket_listen_cb] failed to recv data from udp%c socket: (%d) %s", isipv4 ? '4' : '6', -status, uv_strerror(status));
+        LOGERR("[udp_socket_listen_cb] failed to recv data from udp%c socket: (%d) %s", isipv4 ? '4' : '6', errno, errstring(errno));
         return;
     }
 
@@ -827,6 +828,19 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
     if (!(isipv4 ? get_udp_origdstaddr4(&msg, (void *)&target_skaddr): get_udp_origdstaddr6(&msg, (void *)&target_skaddr))) {
         LOGERR("[udp_socket_listen_cb] failed to get the original ipv%c destination address", isipv4 ? '4' : '6');
         return;
+    }
+
+    socks5_udp4msg_t *udpmsghdr = (void *)packetbuf;
+    udpmsghdr->reserved = 0;
+    udpmsghdr->fragment = 0;
+    udpmsghdr->addrtype = isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6;
+    if (isipv4) {
+        udpmsghdr->ipaddr4 = ((skaddr4_t *)&target_skaddr)->sin_addr.s_addr;
+        udpmsghdr->portnum = ((skaddr4_t *)&target_skaddr)->sin_port;
+    } else {
+        socks5_udp6msg_t *udp6msghdr = (void *)packetbuf;
+        memcpy(&udp6msghdr->ipaddr6, &target_skaddr.sin6_addr.s6_addr, IP6BINLEN);
+        udp6msghdr->portnum = target_skaddr.sin6_port;
     }
 
     ip_port_t client_key = {0};
