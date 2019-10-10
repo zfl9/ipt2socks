@@ -10,7 +10,6 @@
 
 /* method code constant definition */
 #define SOCKS5_METHOD_NOAUTH 0x00
-#define SOCKS5_METHOD_UNACCEPTABLE 0xff
 
 /* command type constant definition */
 #define SOCKS5_COMMAND_CONNECT 0x01
