@@ -467,9 +467,10 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
         return;
     }
 
-    uv_tcp_t *client_stream = calloc(1, sizeof(uv_tcp_t));
+    uv_tcp_t *client_stream = malloc(sizeof(uv_tcp_t));
     uv_tcp_init(listener->loop, client_stream);
     uv_tcp_nodelay(client_stream, 1);
+    client_stream->data = NULL;
 
     status = uv_accept(listener, (void *)client_stream);
     if (status < 0) {
@@ -510,9 +511,10 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
         LOGINF("[tcp_socket_listen_cb] original destination addr: %s#%hu", ipstr, portno);
     }
 
-    uv_tcp_t *socks5_stream = calloc(1, sizeof(uv_tcp_t));
+    uv_tcp_t *socks5_stream = malloc(sizeof(uv_tcp_t));
     uv_tcp_init(listener->loop, socks5_stream);
     uv_tcp_nodelay(socks5_stream, 1);
+    socks5_stream->data = NULL;
 
     IF_VERBOSE LOGINF("[tcp_socket_listen_cb] try to connect to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
