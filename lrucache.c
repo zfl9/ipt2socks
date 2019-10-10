@@ -7,12 +7,10 @@
 /* lrucache maxsize (private variable) */
 static uint16_t lrucache_maxsize = LRUCACHE_MAXSIZE_DEFAULT;
 
-/* get the maxsize of lrucache (globalvar) */
+/* get/set the maxsize of lrucache (globalvar) */
 uint16_t lrucache_get_maxsize(void) {
     return lrucache_maxsize;
 }
-
-/* set the maxsize of lrucache (globalvar) */
 void lrucache_set_maxsize(uint16_t maxsize) {
     lrucache_maxsize = maxsize;
 }

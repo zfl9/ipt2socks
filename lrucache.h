@@ -26,10 +26,8 @@ typedef struct {
     UT_hash_handle  hh;
 } svrentry_t, svrcache_t;
 
-/* get the maxsize of lrucache (globalvar) */
+/* get/set the maxsize of lrucache (globalvar) */
 uint16_t lrucache_get_maxsize(void);
-
-/* set the maxsize of lrucache (globalvar) */
 void lrucache_set_maxsize(uint16_t maxsize);
 
 /* put the given entry into the lrucache, return another removed entry */
