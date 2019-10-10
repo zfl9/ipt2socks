@@ -728,7 +728,11 @@ static void tcp_stream_read_cb(uv_stream_t *selfstream, ssize_t nread, const uv_
             uvbufs[0].len -= (size_t)nread;
         }
         uv_write_t *writereq = is_socks5_stream ? context->socks5_wrtreq : context->client_wrtreq; 
-        uv_write(writereq, peerstream, uvbufs, 1, tcp_stream_write_cb);
+        nread = uv_write(writereq, peerstream, uvbufs, 1, tcp_stream_write_cb);
+        if (nread < 0) {
+            LOGERR("[tcp_stream_read_cb] failed to write data to peer stream: (%zd) %s", -nread, uv_strerror(nread));
+            goto CLOSE_STREAM_PAIR;
+        }
         uv_read_stop(selfstream);
     }
     return;
@@ -761,11 +765,8 @@ static void tcp_stream_write_cb(uv_write_t *writereq, int status) {
 static void tcp_stream_close_cb(uv_handle_t *stream) {
     tcpcontext_t *context = stream->data;
     if (context) {
-        if ((void *)stream == (void *)context->socks5_stream) {
-            context->client_stream->data = NULL;
-        } else {
-            context->socks5_stream->data = NULL;
-        }
+        context->client_stream->data = NULL;
+        context->socks5_stream->data = NULL;
         free(context->client_buffer);
         free(context->socks5_buffer);
         free(context->client_wrtreq);
