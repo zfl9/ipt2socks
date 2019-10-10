@@ -845,28 +845,41 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
 
     ip_port_t client_key = {0};
     if (isipv4) {
-        skaddr4_t *skaddr = (void *)&source_skaddr;
-        client_key.ip.ip4 = skaddr->sin_addr.s_addr;
-        client_key.port = skaddr->sin_port;
+        client_key.ip.ip4 = ((skaddr4_t *)&source_skaddr)->sin_addr.s_addr;
+        client_key.port = ((skaddr4_t *)&source_skaddr)->sin_port;
     } else {
         memcpy(&client_key.ip.ip6, &source_skaddr.sin6_addr.s6_addr, IP6BINLEN);
         client_key.port = source_skaddr.sin6_port;
     }
 
-    cltentry_t *entry = cltcache_get(&g_udp_cltcache, &client_key);
-    if (!entry) {
-        uv_tcp_t *tcp_stream = malloc(sizeof(uv_tcp_t));
-        uv_tcp_init(listener->loop, tcp_stream);
-        uv_tcp_nodelay(tcp_stream, 1);
+    cltentry_t *client_entry = cltcache_get(&g_udp_cltcache, &client_key);
+    if (!client_entry) {
+        client_entry = malloc(sizeof(cltentry_t));
+        memcpy(&client_entry->clt_ipport, &client_key, sizeof(ip_port_t));
+        client_entry->tcp_handle = malloc(sizeof(uv_tcp_t));
+        client_entry->udp_handle = NULL;
+        client_entry->free_timer = NULL;
 
+        cltentry_t *deleted_entry = cltcache_put(&g_udp_cltcache, client_entry);
+        if (deleted_entry) udp_cltentry_release(deleted_entry);
+
+        uv_tcp_t *tcp_handle = client_entry->tcp_handle;
+        uv_tcp_init(listener->loop, tcp_handle);
+        uv_tcp_nodelay(tcp_handle, 1);
+
+        IF_VERBOSE LOGINF("[udp_socket_listen_cb] try to connect to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
         uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
-        status = uv_tcp_connect(connreq, tcp_stream, (void *)&g_server_skaddr, udp_socks5_tcp_connect_cb);
+        status = uv_tcp_connect(connreq, tcp_handle, (void *)&g_server_skaddr, udp_socks5_tcp_connect_cb);
         if (status < 0) {
             LOGERR("[udp_socket_listen_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
-            uv_close((void *)tcp_stream, (void *)free);
+            udp_cltentry_release(client_entry);
             free(connreq);
             return;
         }
+
+        client_entry->udp_handle = malloc(udpmsghdrlen + nread);
+        memcpy(client_entry->udp_handle, packetbuf, udpmsghdrlen + nread);
+        return;
     }
 
     IF_VERBOSE {
@@ -878,6 +891,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         }
         LOGINF("[udp_socket_listen_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
     }
+    // TODO
 }
 
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
