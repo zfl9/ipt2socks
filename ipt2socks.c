@@ -738,6 +738,7 @@ CLOSE_STREAM_PAIR:
     uv_close((void *)peerstream, tcp_stream_close_cb);
 }
 
+/* tcp data stream is sent, restart read */
 static void tcp_stream_write_cb(uv_write_t *writereq, int status) {
     if (status == UV_ECANCELED) return;
 
@@ -756,6 +757,7 @@ static void tcp_stream_write_cb(uv_write_t *writereq, int status) {
     uv_read_start(peerstream, tcp_common_alloc_cb, tcp_stream_read_cb);
 }
 
+/* close tcp connection and release resources */
 static void tcp_stream_close_cb(uv_handle_t *stream) {
     tcpcontext_t *context = stream->data;
     if (context) {
