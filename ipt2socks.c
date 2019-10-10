@@ -830,13 +830,13 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         return;
     }
 
-    socks5_udp4msg_t *udpmsghdr = (void *)packetbuf;
-    udpmsghdr->reserved = 0;
-    udpmsghdr->fragment = 0;
-    udpmsghdr->addrtype = isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6;
+    socks5_udp4msg_t *udp4msghdr = (void *)packetbuf;
+    udp4msghdr->reserved = 0;
+    udp4msghdr->fragment = 0;
+    udp4msghdr->addrtype = isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6;
     if (isipv4) {
-        udpmsghdr->ipaddr4 = ((skaddr4_t *)&target_skaddr)->sin_addr.s_addr;
-        udpmsghdr->portnum = ((skaddr4_t *)&target_skaddr)->sin_port;
+        udp4msghdr->ipaddr4 = ((skaddr4_t *)&target_skaddr)->sin_addr.s_addr;
+        udp4msghdr->portnum = ((skaddr4_t *)&target_skaddr)->sin_port;
     } else {
         socks5_udp6msg_t *udp6msghdr = (void *)packetbuf;
         memcpy(&udp6msghdr->ipaddr6, &target_skaddr.sin6_addr.s6_addr, IP6BINLEN);
