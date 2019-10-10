@@ -76,32 +76,35 @@ static void udp_socks5_tcp_close_cb(uv_handle_t *stream);
 static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *uvbuf);
 static void udp_client_recv_cb(uv_udp_t *client, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags);
 static void udp_client_close_cb(uv_handle_t *client);
-static void udp_caches_clt_timer_cb(uv_timer_t *timer);
-static void udp_caches_svr_timer_cb(uv_timer_t *timer);
-static void udp_caches_clt_free_cb(void *value);
-static void udp_caches_svr_free_cb(void *value);
+static void udp_cache_clt_timer_cb(uv_timer_t *timer);
+static void udp_cache_svr_timer_cb(uv_timer_t *timer);
+static void udp_cache_clt_free_cb(void *value);
+static void udp_cache_svr_free_cb(void *value);
 static void udp_timer_close_cb(uv_handle_t *timer);
 
 /* static global variable definition */
-static bool        g_verbose                 = false;
-static uint8_t     g_options                 = OPTION_DEFAULT;
-static uint8_t     g_nthreads                = THREAD_NUMBERS_DEFAULT;
-static uint32_t    g_tcpbufsiz               = TCP_SKBUFSIZE_DEFAULT;
-static uint16_t    g_udpidletmo              = UDP_IDLE_TIMEO_DEFAULT;
+static bool        g_verbose                           = false;
+static uint8_t     g_options                           = OPTION_DEFAULT;
+static uint8_t     g_nthreads                          = THREAD_NUMBERS_DEFAULT;
+static uint32_t    g_tcpbufsiz                         = TCP_SKBUFSIZE_DEFAULT;
+static uint16_t    g_udpidletmo                        = UDP_IDLE_TIMEO_DEFAULT;
 
-static char        g_bind_ipstr4[IP4STRLEN]  = BIND_IPV4_DEFAULT;
-static char        g_bind_ipstr6[IP6STRLEN]  = BIND_IPV6_DEFAULT;
-static portno_t    g_bind_portno             = BIND_PORT_DEFAULT;
-static skaddr4_t   g_bind_skaddr4            = {0};
-static skaddr6_t   g_bind_skaddr6            = {0};
+static char        g_bind_ipstr4[IP4STRLEN]            = BIND_IPV4_DEFAULT;
+static char        g_bind_ipstr6[IP6STRLEN]            = BIND_IPV6_DEFAULT;
+static portno_t    g_bind_portno                       = BIND_PORT_DEFAULT;
+static skaddr4_t   g_bind_skaddr4                      = {0};
+static skaddr6_t   g_bind_skaddr6                      = {0};
 
-static bool        g_server_isipv4           = true;
-static char        g_server_ipstr[IP6STRLEN] = {0};
-static portno_t    g_server_portno           = 0;
-static skaddr6_t   g_server_skaddr           = {0};
+static bool        g_server_isipv4                     = true;
+static char        g_server_ipstr[IP6STRLEN]           = {0};
+static portno_t    g_server_portno                     = 0;
+static skaddr6_t   g_server_skaddr                     = {0};
 
-static lrucache_t *g_udpclt_cache            = NULL;
-static lrucache_t *g_udpsvr_cache            = NULL;
+static lrucache_t *g_udp_cltcache                      = NULL;
+static lrucache_t *g_udp_svrcache                      = NULL;
+static char        g_udp_ipstrbuf[IP6STRLEN]           = {0};
+static char        g_udp_packetbuf[UDP_PACKET_MAXSIZE] = {0};
+static char        g_udp_socks5buf[SOCKS5_HDR_MAXSIZE] = {0};
 
 /* socks5 authentication request constant */
 static const socks5_authreq_t G_SOCKS5_AUTH_REQUEST = {
@@ -776,8 +779,95 @@ static void tcp_stream_close_cb(uv_handle_t *stream) {
     free(stream);
 }
 
+/* handling udp tproxy packets from listening socket */
 static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
-    // TODO
+    (void) events;
+    bool isipv4 = listener->data != NULL;
+    size_t udpmsghdrlen = isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t);
+
+    if (status < 0) {
+        LOGERR("[udp_socket_listen_cb] failed to recv data from udp%c socket: (%d) %s", isipv4 ? '4' : '6', -status, uv_strerror(status));
+        return;
+    }
+
+    skaddr6_t source_skaddr = {0};
+    char cntl_buffer[UDP_MSGCTL_BUFSIZE] = {0};
+    struct iovec iov = {
+        .iov_base = g_udp_packetbuf + udpmsghdrlen,
+        .iov_len = UDP_PACKET_MAXSIZE - udpmsghdrlen,
+    };
+    struct msghdr msg = {
+        .msg_name = &source_skaddr,
+        .msg_namelen = sizeof(source_skaddr),
+        .msg_iov = &iov,
+        .msg_iovlen = 1,
+        .msg_control = cntl_buffer,
+        .msg_controllen = UDP_MSGCTL_BUFSIZE,
+    };
+
+    int sockfd = -1;
+    uv_fileno((void *)listener, &sockfd);
+
+    ssize_t nread = recvmsg(sockfd, &msg, 0);
+    if (nread < 0) {
+        LOGERR("[udp_socket_listen_cb] failed to recv data from udp%c socket: (%d) %s", isipv4 ? '4' : '6', -status, uv_strerror(status));
+        return;
+    }
+
+    IF_VERBOSE {
+        portno_t portno = 0;
+        if (isipv4) {
+            parse_ipv4_addr((void *)&source_skaddr, g_udp_ipstrbuf, &portno);
+        } else {
+            parse_ipv6_addr((void *)&source_skaddr, g_udp_ipstrbuf, &portno);
+        }
+        LOGINF("[udp_socket_listen_cb] recv %zd bytes data from %s#%hu", nread, g_udp_ipstrbuf, portno);
+    }
+
+    skaddr6_t target_skaddr = {0};
+    if (!(isipv4 ? get_udp_origdstaddr4(&msg, (void *)&target_skaddr): get_udp_origdstaddr6(&msg, (void *)&target_skaddr))) {
+        LOGERR("[udp_socket_listen_cb] failed to get the original ipv%c destination address", isipv4 ? '4' : '6');
+        return;
+    }
+
+    ip_port_t client_key = {0};
+    if (isipv4) {
+        skaddr4_t *skaddr = (void *)&source_skaddr;
+        client_key.ip.ip4 = skaddr->sin_addr.s_addr;
+        client_key.port = skaddr->sin_port;
+    } else {
+        memcpy(&client_key.ip.ip6, &source_skaddr.sin6_addr.s6_addr, IP6BINLEN);
+        client_key.port = source_skaddr.sin6_port;
+    }
+
+    lruentry_t *client_entry = lrucache_get(&g_udp_cltcache, &client_key);
+    if (!client_entry) {
+        uv_tcp_t *tcp_stream = malloc(sizeof(uv_tcp_t));
+        uv_tcp_init(listener->loop, tcp_stream);
+        uv_tcp_nodelay(tcp_stream, 1);
+
+        uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
+        status = uv_tcp_connect(connreq, tcp_stream, (void *)&g_server_skaddr, udp_socks5_tcp_connect_cb);
+        if (status < 0) {
+            LOGERR("[udp_socket_listen_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
+            uv_close((void *)tcp_stream, udp_socks5_tcp_close_cb);
+            free(connreq);
+            return;
+        }
+
+        client_entry = lrucache_put(&g_udp_cltcache, &client_key, tcp_stream, udp_cache_clt_free_cb);
+        tcp_stream->data = NULL;
+    }
+
+    IF_VERBOSE {
+        portno_t portno = 0;
+        if (isipv4) {
+            parse_ipv4_addr((void *)&target_skaddr, g_udp_ipstrbuf, &portno);
+        } else {
+            parse_ipv6_addr((void *)&target_skaddr, g_udp_ipstrbuf, &portno);
+        }
+        LOGINF("[udp_socket_listen_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
+    }
 }
 
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
@@ -816,19 +906,19 @@ static void udp_client_close_cb(uv_handle_t *client) {
     // TODO
 }
 
-static void udp_caches_clt_timer_cb(uv_timer_t *timer) {
+static void udp_cache_clt_timer_cb(uv_timer_t *timer) {
     // TODO
 }
 
-static void udp_caches_svr_timer_cb(uv_timer_t *timer) {
+static void udp_cache_svr_timer_cb(uv_timer_t *timer) {
     // TODO
 }
 
-static void udp_caches_clt_free_cb(void *value) {
+static void udp_cache_clt_free_cb(void *value) {
     // TODO
 }
 
-static void udp_caches_svr_free_cb(void *value) {
+static void udp_cache_svr_free_cb(void *value) {
     // TODO
 }
 
