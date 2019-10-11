@@ -1104,7 +1104,7 @@ static void udp_socks5_tcp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const
     } else if (nread < 0) {
         LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: (%zd) %s", -nread, uv_strerror(nread));
     } else {
-        LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: received undefined data");
+        LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: received undefined protocol data");
     }
 
     udp_cltentry_release(client_entry);
