@@ -946,8 +946,51 @@ static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_
     uvbuf->len = SOCKS5_HDR_MAXSIZE;
 }
 
-static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
-    // TODO
+/* receive authentication response from the socks5 server */
+static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(tcp_handle);
+    cltentry_t *client_entry = tcp_handle->data;
+
+    if (nread < 0) {
+        LOGERR("[udp_socks5_auth_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (nread != sizeof(socks5_authresp_t)) {
+        LOGERR("[udp_socks5_auth_read_cb] auth response length is incorrect: %zd != %zu", nread, sizeof(socks5_authresp_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    socks5_authresp_t *authresp = (void *)uvbuf->base;
+    if (authresp->version != SOCKS5_VERSION) {
+        LOGERR("[udp_socks5_auth_read_cb] auth response version is not SOCKS5: %#hhx", authresp->version);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (authresp->method != SOCKS5_METHOD_NOAUTH) {
+        LOGERR("[udp_socks5_auth_read_cb] auth response method is not NOAUTH: %#hhx", authresp->method);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    IF_VERBOSE LOGINF("[udp_socks5_auth_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    socks5_udp4msg_t *udpmsghdr = (void *)client_entry->udp_handle;
+    bool isipv4 = udpmsghdr->addrtype == SOCKS5_ADDRTYPE_IPV4;
+    void *buffer = isipv4 ? (void *)&G_SOCKS5_UDP4_REQUEST : (void *)&G_SOCKS5_UDP6_REQUEST;
+    int length = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
+    uv_buf_t uvbufs[] = {{.base = buffer, .len = length}};
+    nread = uv_try_write(tcp_handle, uvbufs, 1);
+    if (nread < 0) {
+        LOGERR("[udp_socks5_auth_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    } else if (nread < length) {
+        LOGERR("[udp_socks5_auth_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_resp_read_cb);
+    return;
+
+RELEASE_CLIENT_ENTRY:
+    udp_cltentry_release(client_entry);
 }
 
 static void udp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
