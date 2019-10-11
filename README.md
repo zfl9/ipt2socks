@@ -3,7 +3,7 @@
 
 ## 简要说明
 - IPv4 和 IPv6 双协议栈支持，支持所谓 **纯 TPROXY** 透明代理模式。
-- TCP 透明代理有 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
+- TCP 透明代理为 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
 - UDP 透明代理支持 Full Cone NAT，前提是后端的 socks5 服务器支持 Full Cone NAT。
 - 多线程 + SO_REUSEPORT 端口重用，每个线程运行各自独立的事件循环，可显著提高性能。
 
