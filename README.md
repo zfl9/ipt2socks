@@ -1,4 +1,5 @@
 # ipt2socks
+类似 [redsocks](https://github.com/darkk/redsocks)/[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量。
 
 ## 如何编译
 **动态链接 libuv**：适用于本地编译，使用包管理器安装 [libuv](https://github.com/libuv/libuv) 依赖库即可（如 `yum install libuv-devel`）：
