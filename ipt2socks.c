@@ -1042,7 +1042,35 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
         server_skaddr.sin6_port = proxy6resp->portnum;
     }
 
-    // TODO
+    uv_udp_t *udp_handle = malloc(sizeof(uv_udp_t));
+    uv_udp_init(tcp_handle->loop, udp_handle);
+    udp_handle->data = client_entry;
+
+    nread = uv_udp_connect(udp_handle, (void *)&server_skaddr);
+    if (nread < 0) {
+        LOGERR("[udp_socks5_resp_read_cb] failed to create udp%c socket: (%zd) %s", isipv4 ? '4' : '6', -nread, uv_strerror(nread));
+        uv_close((void *)udp_handle, (void *)free);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    uv_buf_t uvbufs[] = {{.base = (void *)client_entry->udp_handle + 2, *(uint16_t *)client_entry->udp_handle}};
+    nread = uv_udp_try_send(udp_handle, uvbufs, 1, NULL);
+    if (nread < 0) {
+        LOGERR("[udp_socks5_resp_read_cb] failed to send data to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        uv_close((void *)udp_handle, (void *)free);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    free(client_entry->udp_handle);
+    client_entry->udp_handle = udp_handle;
+
+    client_entry->free_timer = malloc(sizeof(uv_timer_t));
+    uv_timer_t *free_timer = client_entry->free_timer;
+    uv_timer_init(tcp_handle->loop, free_timer);
+    uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
+
+    uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_tcp_read_cb);
+    uv_udp_recv_start(udp_handle, udp_client_alloc_cb, udp_client_recv_cb);
     return;
 
 RELEASE_CLIENT_ENTRY:
