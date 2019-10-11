@@ -1100,6 +1100,7 @@ RELEASE_CLIENT_ENTRY:
 
 /* read data from the socks5 server (close connection) */
 static void udp_socks5_tcp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const uv_buf_t *uvbuf) {
+    (void) uvbuf;
     if (nread == 0) return;
     uv_read_stop(tcp_handle);
     cltentry_t *client_entry = tcp_handle->data;
