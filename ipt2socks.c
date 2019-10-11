@@ -906,8 +906,37 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
     }
 }
 
+/* successfully connected to the socks5 server */
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
-    // TODO
+    if (status == UV_ECANCELED) {
+        free(connreq);
+        return;
+    }
+    uv_stream_t *tcp_handle = connreq->handle;
+    cltentry_t *client_entry = tcp_handle->data;
+    free(connreq);
+
+    if (status < 0) {
+        LOGERR("[udp_socks5_tcp_connect_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] connected to the socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+
+    IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
+    status = uv_try_write(tcp_handle, uvbufs, 1);
+    if (status < 0) {
+        LOGERR("[udp_socks5_tcp_connect_cb] failed to send authreq to socks5 server: (%d) %s", -status, uv_strerror(status));
+        goto RELEASE_CLIENT_ENTRY;
+    } else if (status < (int)sizeof(socks5_authreq_t)) {
+        LOGERR("[udp_socks5_tcp_connect_cb] socks5 authreq was not completely sent: %d < %zu", status, sizeof(socks5_authreq_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_auth_read_cb);
+    return;
+
+RELEASE_CLIENT_ENTRY:
+    udp_cltentry_release(client_entry);
 }
 
 static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
