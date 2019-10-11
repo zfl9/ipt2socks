@@ -1135,10 +1135,6 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
         goto RELEASE_CLIENT_ENTRY;
     }
 
-    if (flags & UV_UDP_PARTIAL) {
-        IF_VERBOSE LOGINF("[udp_client_recv_cb] received a partial packet, receive buffer is too small");
-    }
-
     socks5_udp4msg_t *udp4msg = (void *)uvbuf->base;
     if (udp4msg->reserved != 0) {
         LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udp4msg->reserved);
@@ -1152,6 +1148,10 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     if (!isipv4 && nread < (ssize_t)sizeof(socks5_udp6msg_t)) {
         LOGERR("[udp_client_recv_cb] udp message length is too small: %zd < %zu", nread, sizeof(socks5_udp6msg_t));
         goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (flags & UV_UDP_PARTIAL) {
+        IF_VERBOSE LOGINF("[udp_client_recv_cb] received a partial packet, receive buffer is too small");
     }
 
     cltcache_use(&g_udp_cltcache, client_entry);
