@@ -939,8 +939,11 @@ RELEASE_CLIENT_ENTRY:
     udp_cltentry_release(client_entry);
 }
 
+/* populate the uvbuf structure before the read_cb call */
 static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf) {
-    // TODO
+    (void) stream; (void) sugsize;
+    uvbuf->base = g_udp_socks5buf;
+    uvbuf->len = SOCKS5_HDR_MAXSIZE;
 }
 
 static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
