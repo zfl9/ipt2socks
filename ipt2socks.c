@@ -1200,9 +1200,10 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
 
         server_entry = malloc(sizeof(svrentry_t));
         memcpy(&server_entry->svr_ipport, &server_key, sizeof(ip_port_t));
-        server_entry->free_timer = malloc(sizeof(uv_timer_t));
         server_entry->svr_sockfd = svr_sockfd;
+        server_entry->free_timer = malloc(sizeof(uv_timer_t));
         uv_timer_init(udp_handle->loop, server_entry->free_timer);
+        server_entry->free_timer->data = server_entry;
 
         svrentry_t *deleted_entry = svrcache_put(&g_udp_svrcache, server_entry);
         if (deleted_entry) udp_svrentry_release(deleted_entry);
@@ -1242,18 +1243,22 @@ RELEASE_CLIENT_ENTRY:
     udp_cltentry_release(client_entry);
 }
 
+/* udp client idle timeout expired */
 static void udp_cltentry_timer_cb(uv_timer_t *timer) {
-    // TODO
+    udp_cltentry_release(timer->data);
 }
 
+/* udp server idle timeout expired */
 static void udp_svrentry_timer_cb(uv_timer_t *timer) {
-    // TODO
+    udp_svrentry_release(timer->data);
 }
 
+/* release udp client related resources */
 static void udp_cltentry_release(cltentry_t *entry) {
     // TODO
 }
 
+/* release udp server related resources */
 static void udp_svrentry_release(svrentry_t *entry) {
     // TODO
 }
