@@ -236,13 +236,13 @@ void build_ipv6_addr(skaddr6_t *addr, const char *ipstr, portno_t portno) {
 
 /* parse ipstr and portno from ipv4 socket address */
 void parse_ipv4_addr(const skaddr4_t *addr, char *ipstr, portno_t *portno) {
-    inet_ntop(AF_INET, &addr->sin_addr, ipstr, INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &addr->sin_addr, ipstr, IP4STRLEN);
     *portno = ntohs(addr->sin_port);
 }
 
 /* parse ipstr and portno from ipv6 socket address */
 void parse_ipv6_addr(const skaddr6_t *addr, char *ipstr, portno_t *portno) {
-    inet_ntop(AF_INET6, &addr->sin6_addr, ipstr, INET6_ADDRSTRLEN);
+    inet_ntop(AF_INET6, &addr->sin6_addr, ipstr, IP6STRLEN);
     *portno = ntohs(addr->sin6_port);
 }
 
