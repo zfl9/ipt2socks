@@ -875,8 +875,9 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
             return;
         }
 
-        client_entry->udp_handle = malloc(udpmsghdrlen + nread);
-        memcpy(client_entry->udp_handle, packetbuf, udpmsghdrlen + nread);
+        client_entry->udp_handle = malloc(2 + udpmsghdrlen + nread);
+        *(uint16_t *)client_entry->udp_handle = udpmsghdrlen + nread; /* udpmsglen */
+        memcpy((void *)client_entry->udp_handle + 2, packetbuf, udpmsghdrlen + nread); /* udpmsgdata */
 
         cltentry_t *deleted_entry = cltcache_put(&g_udp_cltcache, client_entry);
         if (deleted_entry) udp_cltentry_release(deleted_entry);
@@ -993,8 +994,59 @@ RELEASE_CLIENT_ENTRY:
     udp_cltentry_release(client_entry);
 }
 
-static void udp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
+/* receive socks5-proxy response from the socks5 server */
+static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(tcp_handle);
+    cltentry_t *client_entry = tcp_handle->data;
+
+    if (nread < 0) {
+        LOGERR("[udp_socks5_resp_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (nread != sizeof(socks5_ipv4resp_t) && nread != sizeof(socks5_ipv6resp_t)) {
+        LOGERR("[udp_socks5_resp_read_cb] proxy response length is incorrect: %zd != %zu/%zu", nread, sizeof(socks5_ipv4resp_t), sizeof(socks5_ipv6resp_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    bool isipv4 = nread == sizeof(socks5_ipv4resp_t);
+    socks5_ipv4resp_t *proxyresp = (void *)uvbuf->base;
+    if (proxyresp->version != SOCKS5_VERSION) {
+        LOGERR("[udp_socks5_resp_read_cb] proxy response version is not SOCKS5: %#hhx", proxyresp->version);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (proxyresp->respcode != SOCKS5_RESPCODE_SUCCEEDED) {
+        LOGERR("[udp_socks5_resp_read_cb] proxy response respcode is not SUCC: (%#hhx) %s", proxyresp->respcode, socks5_rcode2string(proxyresp->respcode));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (proxyresp->reserved != 0) {
+        LOGERR("[udp_socks5_resp_read_cb] proxy response reserved is not zero: %#hhx", proxyresp->reserved);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (proxyresp->addrtype != (isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6)) {
+        LOGERR("[udp_socks5_resp_read_cb] proxy response addrtype is not ipv%c: %#hhx", isipv4 ? '4' : '6', proxyresp->addrtype);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    skaddr6_t server_skaddr = {0};
+    if (isipv4) {
+        skaddr4_t *skaddr = (void *)&server_skaddr;
+        skaddr->sin_family = AF_INET;
+        skaddr->sin_addr.s_addr = proxyresp->ipaddr4;
+        skaddr->sin_port = proxyresp->portnum;
+    } else {
+        socks5_ipv6resp_t *proxy6resp = (void *)uvbuf->base;
+        server_skaddr.sin6_family = AF_INET6;
+        memcpy(&server_skaddr.sin6_addr.s6_addr, &proxy6resp->ipaddr6, IP6BINLEN);
+        server_skaddr.sin6_port = proxy6resp->portnum;
+    }
+
     // TODO
+    return;
+
+RELEASE_CLIENT_ENTRY:
+    udp_cltentry_release(client_entry);
 }
 
 static void udp_socks5_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf) {
