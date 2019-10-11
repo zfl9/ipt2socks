@@ -1133,8 +1133,8 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
         goto RELEASE_CLIENT_ENTRY;
     }
 
-    if (nread < (ssize_t)sizeof(socks5_udp4msg_t) && nread < (ssize_t)sizeof(socks5_udp6msg_t)) {
-        LOGERR("[udp_client_recv_cb] udp message length is incorrect: %zd < %zu/%zu", nread, sizeof(socks5_udp4msg_t), sizeof(socks5_udp6msg_t));
+    if (nread < (ssize_t)sizeof(socks5_udp4msg_t)) {
+        LOGERR("[udp_client_recv_cb] udp message length is too small: %zd < %zu", nread, sizeof(socks5_udp4msg_t));
         goto RELEASE_CLIENT_ENTRY;
     }
 
