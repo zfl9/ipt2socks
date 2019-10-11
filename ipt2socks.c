@@ -1243,22 +1243,33 @@ RELEASE_CLIENT_ENTRY:
     udp_cltentry_release(client_entry);
 }
 
-/* udp client idle timeout expired */
+/* udp client idle timer expired */
 static void udp_cltentry_timer_cb(uv_timer_t *timer) {
+    IF_VERBOSE LOGINF("[udp_cltentry_timer_cb] udp client idle timeout, release related resources");
     udp_cltentry_release(timer->data);
 }
 
-/* udp server idle timeout expired */
+/* udp server idle timer expired */
 static void udp_svrentry_timer_cb(uv_timer_t *timer) {
+    IF_VERBOSE LOGINF("[udp_svrentry_timer_cb] udp server idle timeout, release related resources");
     udp_svrentry_release(timer->data);
 }
 
 /* release udp client related resources */
 static void udp_cltentry_release(cltentry_t *entry) {
-    // TODO
+    uv_close((void *)entry->tcp_handle, (void *)free);
+    if (entry->free_timer) {
+        uv_close((void *)entry->udp_handle, (void *)free);
+        uv_close((void *)entry->free_timer, (void *)free);
+    } else {
+        free(entry->udp_handle);
+    }
+    free(entry);
 }
 
 /* release udp server related resources */
 static void udp_svrentry_release(svrentry_t *entry) {
-    // TODO
+    uv_close((void *)entry->free_timer, (void *)free);
+    close(entry->svr_sockfd);
+    free(entry);
 }
