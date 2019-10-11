@@ -1067,8 +1067,9 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     client_entry->free_timer = malloc(sizeof(uv_timer_t));
     uv_timer_t *free_timer = client_entry->free_timer;
     uv_timer_init(tcp_handle->loop, free_timer);
-    uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
+    free_timer->data = client_entry;
 
+    uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
     uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_tcp_read_cb);
     uv_udp_recv_start(udp_handle, udp_client_alloc_cb, udp_client_recv_cb);
     return;
