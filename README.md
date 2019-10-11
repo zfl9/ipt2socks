@@ -15,7 +15,7 @@ ipt2socks 默认安装到 `/usr/local/bin/ipt2socks`，可安装到其它目录�
 cd /opt
 
 # 获取 libuv 源码包
-libuv_version="1.32.0" # 定义 libuv 版本好
+libuv_version="1.32.0" # 定义 libuv 版本号
 wget https://github.com/libuv/libuv/archive/v$libuv_version.tar.gz -Olibuv-$libuv_version.tar.gz
 tar xvf libuv-$libuv_version.tar.gz
 
