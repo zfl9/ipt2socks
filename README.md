@@ -79,8 +79,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -l 选项指定 ipt2socks 的透明代理监听端口。
 - -j 选项指定 ipt2socks 的线程数，默认为 1。
 - -n 选项设置 ipt2socks 进程的 nofile 限制值。
-- -o 选项设置 ipt2socks 的 UDP 空闲超时（秒）。
-- -c 选项设置 ipt2socks 的 UDP 缓存的最大大小。
+- -o 选项设置 ipt2socks 的 UDP 空闲超时(秒)。
+- -c 选项设置 ipt2socks 的 UDP 缓存最大大小。
 - -f 选项设置 ipt2socks 的 TCP 接收缓冲区大小。
 - -u 选项设置 ipt2socks 的用户ID，`run_as_user`。
 - -R 选项指示 ipt2socks 使用 REDIRECT 而非 TPROXY。
@@ -88,7 +88,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -U 选项指示 ipt2socks 仅启用 UDP 透明代理监听端口。
 - -4 选项指示 ipt2socks 仅启用 IPv4 协议栈的透明代理。
 - -6 选项指示 ipt2socks 仅启用 IPv6 协议栈的透明代理。
-- -v 选项指示 ipt2socks 在运行期间打印较详细的日志信息。
+- -v 选项指示 ipt2socks 在运行期间打印详细的日志信息。
 - -V 选项打印 ipt2socks 的版本号，然后退出 ipt2socks 进程。
 - -h 选项打印 ipt2socks 的帮助信息，然后退出 ipt2socks 进程。
 
