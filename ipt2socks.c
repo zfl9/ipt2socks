@@ -860,12 +860,10 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         client_entry->udp_handle = NULL;
         client_entry->free_timer = NULL;
 
-        cltentry_t *deleted_entry = cltcache_put(&g_udp_cltcache, client_entry);
-        if (deleted_entry) udp_cltentry_release(deleted_entry);
-
         uv_tcp_t *tcp_handle = client_entry->tcp_handle;
         uv_tcp_init(listener->loop, tcp_handle);
         uv_tcp_nodelay(tcp_handle, 1);
+        tcp_handle->data = client_entry;
 
         IF_VERBOSE LOGINF("[udp_socket_listen_cb] try to connect to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
         uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
@@ -879,8 +877,23 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
 
         client_entry->udp_handle = malloc(udpmsghdrlen + nread);
         memcpy(client_entry->udp_handle, packetbuf, udpmsghdrlen + nread);
+
+        cltentry_t *deleted_entry = cltcache_put(&g_udp_cltcache, client_entry);
+        if (deleted_entry) udp_cltentry_release(deleted_entry);
         return;
     }
+    if (!client_entry->free_timer) {
+        IF_VERBOSE LOGINF("[udp_socket_listen_cb] connection is in progress, udp packet is ignored");
+        return;
+    }
+
+    uv_buf_t uvbufs[] = {{.base = packetbuf, .len = udpmsghdrlen + nread}};
+    status = uv_udp_try_send(client_entry->udp_handle, uvbufs, 1, NULL);
+    if (status < 0) {
+        LOGERR("[udp_socket_listen_cb] failed to send data to socks5 server: (%d) %s", -status, uv_strerror(status));
+        return;
+    }
+    uv_timer_start(client_entry->free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
 
     IF_VERBOSE {
         portno_t portno = 0;
@@ -891,7 +904,6 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         }
         LOGINF("[udp_socket_listen_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
     }
-    // TODO
 }
 
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
