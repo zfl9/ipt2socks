@@ -1053,7 +1053,7 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
         goto RELEASE_CLIENT_ENTRY;
     }
 
-    uv_buf_t uvbufs[] = {{.base = (void *)client_entry->udp_handle + 2, *(uint16_t *)client_entry->udp_handle}};
+    uv_buf_t uvbufs[] = {{.base = (void *)client_entry->udp_handle + 2, .len = *(uint16_t *)client_entry->udp_handle}};
     nread = uv_udp_try_send(udp_handle, uvbufs, 1, NULL);
     if (nread < 0) {
         LOGERR("[udp_socks5_resp_read_cb] failed to send data to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
@@ -1069,9 +1069,9 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     uv_timer_init(tcp_handle->loop, free_timer);
     free_timer->data = client_entry;
 
-    uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
     uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_tcp_read_cb);
     uv_udp_recv_start(udp_handle, udp_client_alloc_cb, udp_client_recv_cb);
+    uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
     return;
 
 RELEASE_CLIENT_ENTRY:
