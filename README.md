@@ -40,3 +40,56 @@ git clone https://github.com/zfl9/ipt2socks
 cd ipt2socks
 make INCLUDES="-I/opt/libuv/include" LDFLAGS="-L/opt/libuv/lib" && sudo make install
 ```
+
+## 如何运行
+```bash
+# -s 指定 socks5 服务器 ip
+# -p 指定 socks5 服务器端口
+ipt2socks -s 127.0.0.1 -p 1080
+```
+
+**全部参数**
+```bash
+$ ipt2socks --help
+usage: ipt2socks <options...>. the existing options are as follows:
+ -s, --server-addr <addr>           socks5 server ip address, <required>
+ -p, --server-port <port>           socks5 server port number, <required>
+ -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1
+ -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1
+ -l, --listen-port <port>           listen port number, default: 60080
+ -j, --thread-nums <num>            number of worker threads, default: 1
+ -n, --nofile-limit <num>           set nofile limit, maybe need root priv
+ -o, --udp-timeout <sec>            udp socket idle timeout, default: 300
+ -c, --cache-size <size>            max size of udp lrucache, default: 256
+ -f, --buffer-size <size>           buffer size of tcp socket, default: 8192
+ -u, --run-user <user>              run the ipt2socks with the specified user
+ -R, --redirect                     use redirect instead of tproxy (for tcp)
+ -T, --tcp-only                     listen tcp only, aka: disable udp proxy
+ -U, --udp-only                     listen udp only, aka: disable tcp proxy
+ -4, --ipv4-only                    listen ipv4 only, aka: disable ipv6 proxy
+ -6, --ipv6-only                    listen ipv6 only, aka: disable ipv4 proxy
+ -v, --verbose                      print verbose log, default: <disabled>
+ -V, --version                      print ipt2socks version number and exit
+ -h, --help                         print ipt2socks help information and exit
+```
+- -s 选项指定 socks5 服务器的监听地址。
+- -p 选项指定 socks5 服务器的监听端口。
+- -b 选项指定 ipt2socks 的 IPv4 监听地址。
+- -B 选项指定 ipt2socks 的 IPv6 监听地址。
+- -l 选项指定 ipt2socks 的透明代理监听端口。
+- -j 选项指定 ipt2socks 的线程数，默认为 1。
+- -n 选项设置 ipt2socks 进程的 nofile 限制值。
+- -o 选项设置 ipt2socks 的 UDP 空闲超时（秒）。
+- -c 选项设置 ipt2socks 的 UDP 缓存的最大大小。
+- -f 选项设置 ipt2socks 的 TCP 接收缓冲区大小。
+- -u 选项设置 ipt2socks 的用户ID，`run_as_user`。
+- -R 选项指示 ipt2socks 使用 REDIRECT 而非 TPROXY。
+- -T 选项指示 ipt2socks 仅启用 TCP 透明代理监听端口。
+- -U 选项指示 ipt2socks 仅启用 UDP 透明代理监听端口。
+- -4 选项指示 ipt2socks 仅启用 IPv4 协议栈的透明代理。
+- -6 选项指示 ipt2socks 仅启用 IPv6 协议栈的透明代理。
+- -v 选项指示 ipt2socks 在运行期间打印较详细的日志信息。
+- -V 选项打印 ipt2socks 的版本号，然后退出 ipt2socks 进程。
+- -h 选项打印 ipt2socks 的帮助信息，然后退出 ipt2socks 进程。
+
+// TODO
