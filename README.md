@@ -1,5 +1,5 @@
 # ipt2socks
-类似 [redsocks](https://github.com/darkk/redsocks)/[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量。除此之外，没有任何附加功能（KISS 原则，`keep it simple, stupid`）。ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables** 透明代理传入协议的支持，比如 shadowsocks/shadowsocks-r 的 ss-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
+类似 [redsocks](https://github.com/darkk/redsocks)/[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量。除此之外，ipt2socks 不提供没有任何不必要的功能（KISS 原则，`keep it simple, stupid`）。ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables** 透明代理传入协议的支持，比如 shadowsocks/shadowsocks-r 的 ss-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
 
 ## 相关特性
 // TODO
