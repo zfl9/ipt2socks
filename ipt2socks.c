@@ -5,6 +5,7 @@
 #include "protocol.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
@@ -1138,16 +1139,103 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
         goto RELEASE_CLIENT_ENTRY;
     }
 
-    socks5_udp4msg_t *udpmsg = (void *)uvbuf->base;
-    if (udpmsg->reserved != 0) {
-        LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udpmsg->reserved);
+    socks5_udp4msg_t *udp4msg = (void *)uvbuf->base;
+    if (udp4msg->reserved != 0) {
+        LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udp4msg->reserved);
         goto RELEASE_CLIENT_ENTRY;
     }
-    if (udpmsg->fragment != 0) {
-        LOGERR("[udp_client_recv_cb] udp message fragment is not zero: %#hx", udpmsg->fragment);
+    if (udp4msg->fragment != 0) {
+        LOGERR("[udp_client_recv_cb] udp message fragment is not zero: %#hhx", udp4msg->fragment);
         goto RELEASE_CLIENT_ENTRY;
     }
-    // TODO
+    bool isipv4 = udp4msg->addrtype == SOCKS5_ADDRTYPE_IPV4;
+    if (!isipv4 && nread < (ssize_t)sizeof(socks5_udp6msg_t)) {
+        LOGERR("[udp_client_recv_cb] udp message length is too small: %zd < %zu", nread, sizeof(socks5_udp6msg_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    cltcache_use(&g_udp_cltcache, client_entry);
+    uv_timer_start(client_entry->free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
+
+    ip_port_t server_key = {0};
+    if (isipv4) {
+        server_key.ip.ip4 = udp4msg->ipaddr4;
+        server_key.port = udp4msg->portnum;
+    } else {
+        socks5_udp6msg_t *udp6msg = (void *)uvbuf->base;
+        memcpy(&server_key.ip.ip6, &udp6msg->ipaddr6, IP6BINLEN);
+        server_key.port = udp6msg->portnum;
+    }
+
+    IF_VERBOSE {
+        if (isipv4) {
+            inet_ntop(AF_INET, &server_key.ip.ip4, g_udp_ipstrbuf, IP4STRLEN);
+        } else {
+            inet_ntop(AF_INET6, &server_key.ip.ip6, g_udp_ipstrbuf, IP6STRLEN);
+        }
+        portno_t portno = ntohs(server_key.port);
+        LOGINF("[udp_client_recv_cb] recv %zd bytes data from %s#%hu", nread, g_udp_ipstrbuf, portno);
+    }
+
+    svrentry_t *server_entry = svrcache_get(&g_udp_svrcache, &server_key);
+    if (!server_entry) {
+        skaddr6_t bind_skaddr = {0};
+        if (isipv4) {
+            skaddr4_t *skaddr = (void *)&bind_skaddr;
+            skaddr->sin_family = AF_INET;
+            skaddr->sin_addr.s_addr = server_key.ip.ip4;
+            skaddr->sin_port = server_key.port;
+        } else {
+            bind_skaddr.sin6_family = AF_INET6;
+            memcpy(&bind_skaddr.sin6_addr.s6_addr, &server_key.ip.ip6, IP6BINLEN);
+            bind_skaddr.sin6_port = server_key.port;
+        }
+
+        int svr_sockfd = isipv4 ? new_udp4_respsock_tproxy() : new_udp6_respsock_tproxy();
+        if (bind(svr_sockfd, (void *)&bind_skaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
+            LOGERR("[udp_client_recv_cb] failed to bind address for udp%c socket: (%d) %s", isipv4 ? '4' : '6', errno, errstring(errno));
+            close(svr_sockfd);
+            return;
+        }
+
+        server_entry = malloc(sizeof(svrentry_t));
+        memcpy(&server_entry->svr_ipport, &server_key, sizeof(ip_port_t));
+        server_entry->free_timer = malloc(sizeof(uv_timer_t));
+        server_entry->svr_sockfd = svr_sockfd;
+        uv_timer_init(udp_handle->loop, server_entry->free_timer);
+
+        svrentry_t *deleted_entry = svrcache_put(&g_udp_svrcache, server_entry);
+        if (deleted_entry) udp_svrentry_release(deleted_entry);
+    }
+    uv_timer_start(server_entry->free_timer, udp_svrentry_timer_cb, g_udpidletmo * 1000, 0);
+
+    ip_port_t *client_keyptr = &client_entry->clt_ipport;
+    skaddr6_t client_skaddr = {0};
+    if (isipv4) {
+        skaddr4_t *skaddr = (void *)&client_skaddr;
+        skaddr->sin_family = AF_INET;
+        skaddr->sin_addr.s_addr = client_keyptr->ip.ip4;
+        skaddr->sin_port = client_keyptr->port;
+    } else {
+        client_skaddr.sin6_family = AF_INET6;
+        memcpy(&client_skaddr.sin6_addr.s6_addr, &client_keyptr->ip.ip6, IP6BINLEN);
+        client_skaddr.sin6_port = client_keyptr->port;
+    }
+
+    size_t msghdrlen = isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t);
+    if (sendto(server_entry->svr_sockfd, (void *)uvbuf->base + msghdrlen, nread - msghdrlen, 0, (void *)&client_skaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
+        LOGERR("[udp_client_recv_cb] failed to send data to local client: (%d) %s", errno, errstring(errno));
+    } else {
+        IF_VERBOSE {
+            if (isipv4) {
+                inet_ntop(AF_INET, &client_keyptr->ip.ip4, g_udp_ipstrbuf, IP4STRLEN);
+            } else {
+                inet_ntop(AF_INET6, &client_keyptr->ip.ip6, g_udp_ipstrbuf, IP6STRLEN);
+            }
+            portno_t portno = ntohs(client_keyptr->port);
+            LOGINF("[udp_client_recv_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
+        }
+    }
     return;
 
 RELEASE_CLIENT_ENTRY:
