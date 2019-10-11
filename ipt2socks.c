@@ -1120,7 +1120,8 @@ static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *u
 
 /* receive udpmsg from the udp tunnel of the socks5 server */
 static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags) {
-    if (nread == 0 || addr == NULL) return;
+    (void) addr;
+    if (nread == 0) return;
     cltentry_t *client_entry = udp_handle->data;
 
     if (flags & UV_UDP_PARTIAL) {
