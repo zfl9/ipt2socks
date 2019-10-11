@@ -3,9 +3,9 @@
 
 ## 简要说明
 - IPv4/IPv6 双栈支持，支持 **纯 TPROXY** 透明代理模式，专为 [ss-tproxy](https://github.com/zfl9/ss-tproxy) 而写。
-- TCP 透明代理为 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
+- TCP 透明代理有 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
 - UDP 透明代理支持 Full Cone NAT，前提是后端的 socks5 服务器支持 Full Cone NAT。
-- 多线程 + SO_REUSEPORT 端口重用，每个线程运行各自独立的事件循环，可显著提高性能。
+- 多线程 + SO_REUSEPORT 端口重用，每个线程运行各自独立的事件循环，性能提升显著。
 
 ## 如何编译
 **动态链接 libuv**：适用于本地编译，使用包管理器安装 [libuv](https://github.com/libuv/libuv) 依赖库即可（如 `yum install libuv-devel`）：
