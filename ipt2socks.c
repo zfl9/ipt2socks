@@ -1125,10 +1125,6 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     if (nread == 0) return;
     cltentry_t *client_entry = udp_handle->data;
 
-    if (flags & UV_UDP_PARTIAL) {
-        IF_VERBOSE LOGINF("[udp_client_recv_cb] received a partial packet, receive buffer is too small");
-    }
-
     if (nread < 0) {
         LOGERR("[udp_client_recv_cb] failed to recv data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
         goto RELEASE_CLIENT_ENTRY;
@@ -1137,6 +1133,10 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     if (nread < (ssize_t)sizeof(socks5_udp4msg_t)) {
         LOGERR("[udp_client_recv_cb] udp message length is too small: %zd < %zu", nread, sizeof(socks5_udp4msg_t));
         goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (flags & UV_UDP_PARTIAL) {
+        IF_VERBOSE LOGINF("[udp_client_recv_cb] received a partial packet, receive buffer is too small");
     }
 
     socks5_udp4msg_t *udp4msg = (void *)uvbuf->base;
