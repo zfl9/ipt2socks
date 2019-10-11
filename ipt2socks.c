@@ -974,7 +974,7 @@ static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     }
 
     IF_VERBOSE LOGINF("[udp_socks5_auth_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
-    socks5_udp4msg_t *udpmsghdr = (void *)client_entry->udp_handle;
+    socks5_udp4msg_t *udpmsghdr = (void *)client_entry->udp_handle + 2;
     bool isipv4 = udpmsghdr->addrtype == SOCKS5_ADDRTYPE_IPV4;
     void *buffer = isipv4 ? (void *)&G_SOCKS5_UDP4_REQUEST : (void *)&G_SOCKS5_UDP6_REQUEST;
     int length = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
