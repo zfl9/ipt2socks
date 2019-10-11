@@ -886,6 +886,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         IF_VERBOSE LOGINF("[udp_socket_listen_cb] connection is in progress, udp packet is ignored");
         return;
     }
+    uv_timer_start(client_entry->free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
 
     uv_buf_t uvbufs[] = {{.base = packetbuf, .len = udpmsghdrlen + nread}};
     status = uv_udp_try_send(client_entry->udp_handle, uvbufs, 1, NULL);
@@ -893,7 +894,6 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         LOGERR("[udp_socket_listen_cb] failed to send data to socks5 server: (%d) %s", -status, uv_strerror(status));
         return;
     }
-    uv_timer_start(client_entry->free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
 
     IF_VERBOSE {
         portno_t portno = 0;
