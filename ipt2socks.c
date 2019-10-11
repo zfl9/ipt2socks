@@ -729,7 +729,7 @@ static void tcp_stream_read_cb(uv_stream_t *selfstream, ssize_t nread, const uv_
             uvbufs[0].base += nread;
             uvbufs[0].len -= (size_t)nread;
         }
-        uv_write_t *writereq = is_socks5_stream ? context->socks5_wrtreq : context->client_wrtreq; 
+        uv_write_t *writereq = is_socks5_stream ? context->socks5_wrtreq : context->client_wrtreq;
         nread = uv_write(writereq, peerstream, uvbufs, 1, tcp_stream_write_cb);
         if (nread < 0) {
             LOGERR("[tcp_stream_read_cb] failed to write data to peer stream: (%zd) %s", -nread, uv_strerror(nread));
@@ -1110,12 +1110,46 @@ static void udp_socks5_tcp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const
     udp_cltentry_release(client_entry);
 }
 
+/* populate the uvbuf structure before the read_cb call */
 static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *uvbuf) {
-    // TODO
+    (void) client; (void) sugsize;
+    uvbuf->base = g_udp_packetbuf;
+    uvbuf->len = UDP_PACKET_MAXSIZE;
 }
 
-static void udp_client_recv_cb(uv_udp_t *client, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags) {
-    // TODO
+/* receive udpmsg from the udp tunnel of the socks5 server */
+static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf_t *uvbuf, const skaddr_t *addr, unsigned flags) {
+    if (nread == 0 || addr == NULL) return;
+    cltentry_t *client_entry = udp_handle->data;
+
+    if (flags & UV_UDP_PARTIAL) {
+        IF_VERBOSE LOGINF("[udp_client_recv_cb] received a partial packet, receive buffer is too small");
+    }
+
+    if (nread < 0) {
+        LOGERR("[udp_client_recv_cb] failed to recv data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (nread < (ssize_t)sizeof(socks5_udp4msg_t) && nread < (ssize_t)sizeof(socks5_udp6msg_t)) {
+        LOGERR("[udp_client_recv_cb] udp message length is incorrect: %zd < %zu/%zu", nread, sizeof(socks5_udp4msg_t), sizeof(socks5_udp6msg_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    socks5_udp4msg_t *udpmsg = (void *)uvbuf->base;
+    if (udpmsg->reserved != 0) {
+        LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udpmsg->reserved);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (udpmsg->fragment != 0) {
+        LOGERR("[udp_client_recv_cb] udp message fragment is not zero: %#hx", udpmsg->fragment);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    return;
+
+RELEASE_CLIENT_ENTRY:
+    udp_cltentry_release(client_entry);
 }
 
 static void udp_cltentry_timer_cb(uv_timer_t *timer) {
