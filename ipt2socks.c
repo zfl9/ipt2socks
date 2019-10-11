@@ -938,6 +938,7 @@ static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     return;
 
 RELEASE_CLIENT_ENTRY:
+    cltcache_del(&g_udp_cltcache, client_entry);
     udp_cltentry_release(client_entry);
 }
 
@@ -992,6 +993,7 @@ static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     return;
 
 RELEASE_CLIENT_ENTRY:
+    cltcache_del(&g_udp_cltcache, client_entry);
     udp_cltentry_release(client_entry);
 }
 
@@ -1092,6 +1094,7 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     return;
 
 RELEASE_CLIENT_ENTRY:
+    cltcache_del(&g_udp_cltcache, client_entry);
     udp_cltentry_release(client_entry);
 }
 
@@ -1109,6 +1112,7 @@ static void udp_socks5_tcp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const
         LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: received undefined protocol data");
     }
 
+    cltcache_del(&g_udp_cltcache, client_entry);
     udp_cltentry_release(client_entry);
 }
 
@@ -1240,6 +1244,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     return;
 
 RELEASE_CLIENT_ENTRY:
+    cltcache_del(&g_udp_cltcache, client_entry);
     udp_cltentry_release(client_entry);
 }
 
