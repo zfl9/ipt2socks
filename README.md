@@ -1,18 +1,21 @@
 # ipt2socks
 
 ## 如何编译
+**动态链接 libuv**：适用于本地编译，使用包管理器安装 [libuv](https://github.com/libuv/libuv) 依赖库即可（如 `yum install libuv-devel`）：
 ```bash
 git clone https://github.com/zfl9/ipt2socks
 cd ipt2socks
 make && sudo make install
 ```
+ipt2socks 默认安装到 `/usr/local/bin/ipt2socks`，可安装到其它目录，如 `make install DESTDIR=/opt/local/bin`。
 
+**静态链接 libuv**：适用于交叉编译，此方式编译出来的 `ipt2socks` 不依赖任何第三方库，可直接拷贝到目标系统运行：
 ```bash
 # 进入某个目录
 cd /opt
 
 # 获取 libuv 源码包
-libuv_version="1.31.0"
+libuv_version="1.32.0" # 定义 libuv 版本好
 wget https://github.com/libuv/libuv/archive/v$libuv_version.tar.gz -Olibuv-$libuv_version.tar.gz
 tar xvf libuv-$libuv_version.tar.gz
 
