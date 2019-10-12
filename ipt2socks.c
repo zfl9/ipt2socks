@@ -569,7 +569,7 @@ static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
         LOGERR("[tcp_socks5_tcp_connect_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
         goto CLOSE_STREAM_PAIR;
     }
-    IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] connected to the socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] connected to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
 
     IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
@@ -684,7 +684,7 @@ static void tcp_socks5_resp_read_cb(uv_stream_t *socks5_stream, ssize_t nread, c
         goto CLOSE_STREAM_PAIR;
     }
 
-    IF_VERBOSE LOGINF("[tcp_socks5_resp_read_cb] connected to the target host, start forwarding");
+    IF_VERBOSE LOGINF("[tcp_socks5_resp_read_cb] connected to target host, start forwarding");
     uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_stream_read_cb);
     uv_read_start(client_stream, tcp_common_alloc_cb, tcp_stream_read_cb);
     return;
@@ -827,7 +827,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
 
     skaddr6_t target_skaddr = {0};
     if (!(isipv4 ? get_udp_origdstaddr4(&msg, (void *)&target_skaddr): get_udp_origdstaddr6(&msg, (void *)&target_skaddr))) {
-        LOGERR("[udp_socket_listen_cb] failed to get the original ipv%c destination address", isipv4 ? '4' : '6');
+        LOGERR("[udp_socket_listen_cb] failed to get original ipv%c destination address", isipv4 ? '4' : '6');
         return;
     }
 
@@ -904,7 +904,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         } else {
             parse_ipv6_addr((void *)&target_skaddr, g_udp_ipstrbuf, &portno);
         }
-        LOGINF("[udp_socket_listen_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
+        LOGINF("[udp_socket_listen_cb] send %zd bytes data to %s#%hu via socks5", nread, g_udp_ipstrbuf, portno);
     }
 }
 
@@ -922,7 +922,7 @@ static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
         LOGERR("[udp_socks5_tcp_connect_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
         goto RELEASE_CLIENT_ENTRY;
     }
-    IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] connected to the socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] connected to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
 
     IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
@@ -1069,7 +1069,7 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     uv_udp_recv_start(udp_handle, udp_client_alloc_cb, udp_client_recv_cb);
     uv_timer_start(free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
 
-    IF_VERBOSE LOGINF("[udp_socks5_resp_read_cb] udp tunnel has been opened and data is being sent");
+    IF_VERBOSE LOGINF("[udp_socks5_resp_read_cb] udp tunnel is open, try to send packet via socks5");
     uv_buf_t uvbufs[] = {{.base = udpmsgbuf + 2, .len = *(uint16_t *)udpmsgbuf}};
     nread = uv_udp_try_send(udp_handle, uvbufs, 1, NULL);
     if (nread < 0) {
@@ -1087,7 +1087,8 @@ static void udp_socks5_resp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
                 inet_ntop(AF_INET6, &udp6msghdr->ipaddr6, g_udp_ipstrbuf, IP6STRLEN);
                 portno = ntohs(udp6msghdr->portnum);
             }
-            LOGINF("[udp_socks5_resp_read_cb] send %zu bytes data to %s#%hu", uvbufs[0].len, g_udp_ipstrbuf, portno);
+            size_t length = uvbufs[0].len - (isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t));
+            LOGINF("[udp_socks5_resp_read_cb] send %zu bytes data to %s#%hu via socks5", length, g_udp_ipstrbuf, portno);
         }
     }
     free(udpmsgbuf);
@@ -1106,11 +1107,11 @@ static void udp_socks5_tcp_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const
     cltentry_t *client_entry = tcp_handle->data;
 
     if (nread == UV_EOF) {
-        IF_VERBOSE LOGINF("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server is closed");
+        IF_VERBOSE LOGINF("[udp_socks5_tcp_read_cb] udp tunnel closed by server, release resources");
     } else if (nread < 0) {
-        LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: (%zd) %s", -nread, uv_strerror(nread));
+        LOGERR("[udp_socks5_tcp_read_cb] socket error occurred in udp tunnel: (%zd) %s", -nread, uv_strerror(nread));
     } else if (nread > 0) {
-        LOGERR("[udp_socks5_tcp_read_cb] udp tunnel of the socks5 server has an error: received undefined protocol data");
+        LOGERR("[udp_socks5_tcp_read_cb] received undefined protocol data from udp tunnel");
     }
 
     cltcache_del(&g_udp_cltcache, client_entry);
@@ -1179,7 +1180,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
             inet_ntop(AF_INET6, &server_key.ip.ip6, g_udp_ipstrbuf, IP6STRLEN);
         }
         portno_t portno = ntohs(server_key.port);
-        LOGINF("[udp_client_recv_cb] recv %zd bytes data from %s#%hu", nread, g_udp_ipstrbuf, portno);
+        LOGINF("[udp_client_recv_cb] recv %zd bytes data from %s#%hu via socks5", nread - (isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t)), g_udp_ipstrbuf, portno);
     }
 
     svrentry_t *server_entry = svrcache_get(&g_udp_svrcache, &server_key);
@@ -1239,7 +1240,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
                 inet_ntop(AF_INET6, &client_keyptr->ip.ip6, g_udp_ipstrbuf, IP6STRLEN);
             }
             portno_t portno = ntohs(client_keyptr->port);
-            LOGINF("[udp_client_recv_cb] send %zd bytes data to %s#%hu", nread, g_udp_ipstrbuf, portno);
+            LOGINF("[udp_client_recv_cb] send %zd bytes data to %s#%hu via tproxy", nread - msghdrlen, g_udp_ipstrbuf, portno);
         }
     }
     return;
