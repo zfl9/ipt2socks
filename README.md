@@ -92,4 +92,6 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -V 选项打印 ipt2socks 的版本号，然后退出 ipt2socks 进程。
 - -h 选项打印 ipt2socks 的帮助信息，然后退出 ipt2socks 进程。
 
-// TODO
+**iptables 规则**：对 iptables 有兴趣的可以去看看 [ss-tproxy](https://github.com/zfl9/ss-tproxy)，这里就不做介绍了。
+
+Enjoy it!
