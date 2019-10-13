@@ -1140,6 +1140,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     }
 
     socks5_udp4msg_t *udp4msg = (void *)uvbuf->base;
+    bool isipv4 = udp4msg->addrtype == SOCKS5_ADDRTYPE_IPV4;
     if (udp4msg->reserved != 0) {
         LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udp4msg->reserved);
         goto RELEASE_CLIENT_ENTRY;
@@ -1148,7 +1149,6 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
         LOGERR("[udp_client_recv_cb] udp message fragment is not zero: %#hhx", udp4msg->fragment);
         goto RELEASE_CLIENT_ENTRY;
     }
-    bool isipv4 = udp4msg->addrtype == SOCKS5_ADDRTYPE_IPV4;
     if (!isipv4 && nread < (ssize_t)sizeof(socks5_udp6msg_t)) {
         LOGERR("[udp_client_recv_cb] udp message length is too small: %zd < %zu", nread, sizeof(socks5_udp6msg_t));
         goto RELEASE_CLIENT_ENTRY;
