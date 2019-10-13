@@ -853,30 +853,30 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
 
     cltentry_t *client_entry = cltcache_get(&g_udp_cltcache, &client_key);
     if (!client_entry) {
-        client_entry = malloc(sizeof(cltentry_t));
-        memcpy(&client_entry->clt_ipport, &client_key, sizeof(ip_port_t));
-        client_entry->tcp_handle = malloc(sizeof(uv_tcp_t));
-        client_entry->udp_handle = NULL;
-        client_entry->free_timer = NULL;
-
-        uv_tcp_t *tcp_handle = client_entry->tcp_handle;
+        uv_tcp_t *tcp_handle = malloc(sizeof(uv_tcp_t));
         uv_tcp_init(listener->loop, tcp_handle);
         uv_tcp_nodelay(tcp_handle, 1);
-        tcp_handle->data = client_entry;
 
         IF_VERBOSE LOGINF("[udp_socket_listen_cb] try to connect to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
         uv_connect_t *connreq = malloc(sizeof(uv_connect_t));
         status = uv_tcp_connect(connreq, tcp_handle, (void *)&g_server_skaddr, udp_socks5_tcp_connect_cb);
         if (status < 0) {
             LOGERR("[udp_socket_listen_cb] failed to connect to socks5 server: (%d) %s", -status, uv_strerror(status));
-            udp_cltentry_release(client_entry);
+            uv_close((void *)tcp_handle, (void *)free);
             free(connreq);
             return;
         }
 
-        client_entry->udp_handle = malloc(2 + udpmsghdrlen + nread);
-        *(uint16_t *)client_entry->udp_handle = udpmsghdrlen + nread; /* udpmsglen */
-        memcpy((void *)client_entry->udp_handle + 2, packetbuf, udpmsghdrlen + nread); /* udpmsgdata */
+        client_entry = malloc(sizeof(cltentry_t));
+        memcpy(&client_entry->clt_ipport, &client_key, sizeof(ip_port_t));
+        client_entry->free_timer = NULL; /* NULL means that the udp tunnel has not yet been opened */
+
+        client_entry->tcp_handle = tcp_handle;
+        tcp_handle->data = client_entry;
+
+        client_entry->udp_handle = malloc(2 + udpmsghdrlen + nread); /* udpmsg */
+        *(uint16_t *)client_entry->udp_handle = udpmsghdrlen + nread; /* msglen */
+        memcpy((void *)client_entry->udp_handle + 2, packetbuf, udpmsghdrlen + nread); /* payload */
 
         cltentry_t *deleted_entry = cltcache_put(&g_udp_cltcache, client_entry);
         if (deleted_entry) udp_cltentry_release(deleted_entry);
