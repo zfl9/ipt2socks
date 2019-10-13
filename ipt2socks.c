@@ -842,7 +842,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events) {
         udp6msghdr->portnum = target_skaddr.sin6_port;
     }
 
-    ip_port_t client_key = {0};
+    ip_port_t client_key = {{0}, 0};
     if (isipv4) {
         client_key.ip.ip4 = ((skaddr4_t *)&source_skaddr)->sin_addr.s_addr;
         client_key.port = ((skaddr4_t *)&source_skaddr)->sin_port;
@@ -1162,7 +1162,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
     cltcache_use(&g_udp_cltcache, client_entry);
     uv_timer_start(client_entry->free_timer, udp_cltentry_timer_cb, g_udpidletmo * 1000, 0);
 
-    ip_port_t server_key = {0};
+    ip_port_t server_key = {{0}, 0};
     if (isipv4) {
         server_key.ip.ip4 = udp4msg->ipaddr4;
         server_key.port = udp4msg->portnum;
