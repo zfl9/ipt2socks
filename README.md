@@ -47,6 +47,7 @@ make INCLUDES="-I/opt/libuv/include" LDFLAGS="-L/opt/libuv/lib" && sudo make ins
 # -p 指定 socks5 服务器端口
 ipt2socks -s 127.0.0.1 -p 1080
 ```
+> ipt2socks 启动后，配好相应的 iptables 规则即可。这里就不介绍 iptables 了，有兴趣的请戳 [ss-tproxy](https://github.com/zfl9/ss-tproxy)。
 
 **全部参数**
 ```bash
@@ -91,7 +92,5 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -v 选项指示 ipt2socks 在运行期间打印详细的日志信息。
 - -V 选项打印 ipt2socks 的版本号，然后退出 ipt2socks 进程。
 - -h 选项打印 ipt2socks 的帮助信息，然后退出 ipt2socks 进程。
-
-**iptables 规则**：对 iptables 有兴趣的可以去看看 [ss-tproxy](https://github.com/zfl9/ss-tproxy)，这里就不做介绍了。
 
 Enjoy it!
