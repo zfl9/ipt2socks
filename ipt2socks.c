@@ -42,7 +42,7 @@ enum {
 #define BIND_PORT_DEFAULT 60080
 
 /* ipt2socks version string */
-#define IPT2SOCKS_VERSION "ipt2socks v1.0-beta.1 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.0.0 <https://github.com/zfl9/ipt2socks>"
 
 /* tcp stream context typedef */
 typedef struct {
