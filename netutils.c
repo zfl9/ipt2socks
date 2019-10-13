@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include <sys/types.h>
+#include <netinet/tcp.h>
 #include <linux/limits.h>
 #include <pwd.h>
 #include <grp.h>
@@ -27,6 +28,30 @@
 #ifndef IPV6_RECVORIGDSTADDR
 #define IPV6_RECVORIGDSTADDR 74
 #endif
+
+#define KEEPALIVE_CONN_IDLE_SEC 15
+#define KEEPALIVE_RETRY_MAX_COUNT 5
+#define KEEPALIVE_RETRY_INTERVAL_SEC 1
+
+/* setsockopt(SO_KEEPALIVE) */
+void set_keepalive(int sockfd) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int))) {
+        LOGERR("[set_keepalive] setsockopt(%d, SO_KEEPALIVE): (%d) %s", sockfd, errno, errstring(errno));
+        exit(errno);
+    }
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &(int){KEEPALIVE_CONN_IDLE_SEC}, sizeof(int))) {
+        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPIDLE): (%d) %s", sockfd, errno, errstring(errno));
+        exit(errno);
+    }
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &(int){KEEPALIVE_RETRY_MAX_COUNT}, sizeof(int))) {
+        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPCNT): (%d) %s", sockfd, errno, errstring(errno));
+        exit(errno);
+    }
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &(int){KEEPALIVE_RETRY_INTERVAL_SEC}, sizeof(int))) {
+        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPINTVL): (%d) %s", sockfd, errno, errstring(errno));
+        exit(errno);
+    }
+}
 
 /* setsockopt(IPV6_V6ONLY) */
 void set_ipv6_only(int sockfd) {

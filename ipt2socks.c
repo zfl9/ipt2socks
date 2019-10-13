@@ -484,6 +484,9 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     uv_fileno((void *)client_stream, &sockfd);
     skaddr6_t skaddr; char ipstr[IP6STRLEN]; portno_t portno;
 
+    /* enable SO_KEEPALIVE for client-side connection */
+    set_keepalive(sockfd);
+
     IF_VERBOSE {
         getpeername(sockfd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
         if (isipv4) {

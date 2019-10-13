@@ -55,6 +55,9 @@ typedef struct sockaddr     skaddr_t;
 typedef struct sockaddr_in  skaddr4_t;
 typedef struct sockaddr_in6 skaddr6_t;
 
+/* setsockopt(SO_KEEPALIVE) */
+void set_keepalive(int sockfd);
+
 /* setsockopt(IPV6_V6ONLY) */
 void set_ipv6_only(int sockfd);
 
