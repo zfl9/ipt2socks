@@ -482,10 +482,8 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
 
     int sockfd = -1;
     uv_fileno((void *)client_stream, &sockfd);
+    set_keepalive(sockfd); /* enable SO_KEEPALIVE */
     skaddr6_t skaddr; char ipstr[IP6STRLEN]; portno_t portno;
-
-    /* enable SO_KEEPALIVE for client-side connection */
-    set_keepalive(sockfd);
 
     IF_VERBOSE {
         getpeername(sockfd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
@@ -530,6 +528,9 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
         free(connreq);
         return;
     }
+
+    uv_fileno((void *)socks5_stream, &sockfd);
+    set_keepalive(sockfd); /* enable SO_KEEPALIVE */
 
     tcpcontext_t *context = malloc(sizeof(tcpcontext_t));
     context->client_stream = client_stream;
