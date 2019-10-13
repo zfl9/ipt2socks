@@ -1141,6 +1141,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
 
     socks5_udp4msg_t *udp4msg = (void *)uvbuf->base;
     bool isipv4 = udp4msg->addrtype == SOCKS5_ADDRTYPE_IPV4;
+    size_t msghdrlen = isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t);
     if (udp4msg->reserved != 0) {
         LOGERR("[udp_client_recv_cb] udp message reserved is not zero: %#hx", udp4msg->reserved);
         goto RELEASE_CLIENT_ENTRY;
@@ -1178,7 +1179,7 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
             inet_ntop(AF_INET6, &server_key.ip.ip6, g_udp_ipstrbuf, IP6STRLEN);
         }
         portno_t portno = ntohs(server_key.port);
-        LOGINF("[udp_client_recv_cb] recv %zd bytes data from %s#%hu via socks5", nread - (isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t)), g_udp_ipstrbuf, portno);
+        LOGINF("[udp_client_recv_cb] recv %zd bytes data from %s#%hu via socks5", nread - msghdrlen, g_udp_ipstrbuf, portno);
     }
 
     svrentry_t *server_entry = svrcache_get(&g_udp_svrcache, &server_key);
@@ -1227,7 +1228,6 @@ static void udp_client_recv_cb(uv_udp_t *udp_handle, ssize_t nread, const uv_buf
         client_skaddr.sin6_port = client_keyptr->port;
     }
 
-    size_t msghdrlen = isipv4 ? sizeof(socks5_udp4msg_t) : sizeof(socks5_udp6msg_t);
     if (sendto(server_entry->svr_sockfd, (void *)uvbuf->base + msghdrlen, nread - msghdrlen, 0, (void *)&client_skaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
         LOGERR("[udp_client_recv_cb] failed to send data to local client: (%d) %s", errno, errstring(errno));
     } else {
