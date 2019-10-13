@@ -658,14 +658,12 @@ static void tcp_socks5_resp_read_cb(uv_stream_t *socks5_stream, ssize_t nread, c
         goto CLOSE_STREAM_PAIR;
     }
 
-    socks5_ipv4req_t *proxyreq = context->client_buffer;
-    bool isipv4 = proxyreq->addrtype == SOCKS5_ADDRTYPE_IPV4;
-    int length = isipv4 ? sizeof(socks5_ipv4resp_t) : sizeof(socks5_ipv6resp_t);
-    if (nread != length) {
-        LOGERR("[tcp_socks5_resp_read_cb] proxy response length is incorrect: %zd != %d", nread, length);
+    if (nread != sizeof(socks5_ipv4resp_t) && nread != sizeof(socks5_ipv6resp_t)) {
+        LOGERR("[tcp_socks5_resp_read_cb] proxy response length is incorrect: %zd != %zu/%zu", nread, sizeof(socks5_ipv4resp_t), sizeof(socks5_ipv6resp_t));
         goto CLOSE_STREAM_PAIR;
     }
 
+    bool isipv4 = nread == sizeof(socks5_ipv4resp_t);
     socks5_ipv4resp_t *proxyresp = (void *)uvbuf->base;
     if (proxyresp->version != SOCKS5_VERSION) {
         LOGERR("[tcp_socks5_resp_read_cb] proxy response version is not SOCKS5: %#hhx", proxyresp->version);
