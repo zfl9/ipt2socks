@@ -287,7 +287,7 @@ int get_ipstr_family(const char *ipstr) {
 /* set nofile limit (may require root privileges) */
 void set_nofile_limit(rlim_t nofile) {
     if (setrlimit(RLIMIT_NOFILE, &(struct rlimit){nofile, nofile}) < 0) {
-        LOGERR("[set_nofile_limit] setrlimit(nofile, %lu): (%d) %s", nofile, errno, errstring(errno));
+        LOGERR("[set_nofile_limit] setrlimit(nofile, %lu): (%d) %s", (long unsigned)nofile, errno, errstring(errno));
         exit(errno);
     }
 }
