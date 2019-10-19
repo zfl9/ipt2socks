@@ -19,7 +19,7 @@ install: $(MAIN)
 clean:
 	$(RM) *.o $(MAIN)
 
-$(MAIN): $(OBJS) 
+$(MAIN): $(OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -s -o $(MAIN) $(OBJS) $(LDFLAGS) $(LIBS)
 
 .c.o:

@@ -5,8 +5,8 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 #include <sys/types.h>
+#include <arpa/inet.h>
 #include <netinet/tcp.h>
 #include <linux/limits.h>
 #include <pwd.h>
@@ -301,6 +301,8 @@ void run_as_user(const char *username, char *const argv[]) {
         LOGERR("[run_as_user] the given user does not exist: %s", username);
         exit(1);
     }
+
+    if (userinfo->pw_uid == 0) return; /* ignore if target user is root */
 
     if (setgid(userinfo->pw_gid) < 0) {
         LOGERR("[run_as_user] failed to change group_id of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));

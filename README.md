@@ -93,4 +93,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -V 选项打印 ipt2socks 的版本号，然后退出 ipt2socks 进程。
 - -h 选项打印 ipt2socks 的帮助信息，然后退出 ipt2socks 进程。
 
+**以普通用户运行 ipt2socks**
+- `sudo setcap cap_net_bind_service,cap_net_admin+ep /usr/local/bin/ipt2socks`
+- 如果以 root 用户启动 ipt2socks，也可以指定 `-u nobody` 选项切换至 `nobody` 用户
+
 Enjoy it!
