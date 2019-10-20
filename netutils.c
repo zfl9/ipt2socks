@@ -33,6 +33,9 @@
 #define KEEPALIVE_RETRY_MAX_COUNT 5
 #define KEEPALIVE_RETRY_INTERVAL_SEC 1
 
+/* suppress the warning of openwrt */
+int initgroups(const char *user, gid_t group);
+
 /* setsockopt(SO_KEEPALIVE) */
 void set_keepalive(int sockfd) {
     if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int))) {
