@@ -64,6 +64,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -c, --cache-size <size>            max size of udp lrucache, default: 256
  -f, --buffer-size <size>           buffer size of tcp socket, default: 8192
  -u, --run-user <user>              run the ipt2socks with the specified user
+ -G, --graceful                     gracefully close the tcp connection pair
  -R, --redirect                     use redirect instead of tproxy (for tcp)
  -T, --tcp-only                     listen tcp only, aka: disable udp proxy
  -U, --udp-only                     listen udp only, aka: disable tcp proxy
@@ -84,6 +85,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - -c 选项设置 ipt2socks 的 UDP 缓存最大大小。
 - -f 选项设置 ipt2socks 的 TCP 接收缓冲区大小。
 - -u 选项设置 ipt2socks 的用户ID，`run_as_user`。
+- -G 选项指示 ipt2socks 优雅关闭 TCP 代理连接对。
 - -R 选项指示 ipt2socks 使用 REDIRECT 而非 TPROXY。
 - -T 选项指示 ipt2socks 仅启用 TCP 透明代理监听端口。
 - -U 选项指示 ipt2socks 仅启用 UDP 透明代理监听端口。

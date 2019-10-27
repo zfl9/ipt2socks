@@ -20,6 +20,7 @@ enum {
     OPTION_IPV4    = 0x01 << 2, /* enable ipv4 */
     OPTION_IPV6    = 0x01 << 3, /* enable ipv6 */
     OPTION_DNAT    = 0x01 << 4, /* use REDIRECT instead of TPROXY (for tcp) */
+    OPTION_HFCLS   = 0x01 << 5, /* gracefully close the tcp connection pair */
     OPTION_DEFAULT = OPTION_TCP | OPTION_UDP | OPTION_IPV4 | OPTION_IPV6, /* default behavior */
 };
 
@@ -42,7 +43,7 @@ enum {
 #define BIND_PORT_DEFAULT 60080
 
 /* ipt2socks version string */
-#define IPT2SOCKS_VERSION "ipt2socks v1.0.0 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.0.1 <https://github.com/zfl9/ipt2socks>"
 
 /* tcp stream context typedef */
 typedef struct {
@@ -145,6 +146,7 @@ static void print_command_help(void) {
            " -c, --cache-size <size>            max size of udp lrucache, default: 256\n"
            " -f, --buffer-size <size>           buffer size of tcp socket, default: 8192\n"
            " -u, --run-user <user>              run the ipt2socks with the specified user\n"
+           " -G, --graceful                     gracefully close the tcp connection pair\n"
            " -R, --redirect                     use redirect instead of tproxy (for tcp)\n"
            " -T, --tcp-only                     listen tcp only, aka: disable udp proxy\n"
            " -U, --udp-only                     listen udp only, aka: disable tcp proxy\n"
@@ -158,7 +160,7 @@ static void print_command_help(void) {
 
 /* parsing command line arguments */
 static void parse_command_args(int argc, char* argv[]) {
-    const char *optstr = ":s:p:b:B:l:j:n:o:c:f:u:RTU46vVh";
+    const char *optstr = ":s:p:b:B:l:j:n:o:c:f:u:GRTU46vVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -171,6 +173,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"cache-size",    required_argument, NULL, 'c'},
         {"buffer-size",   required_argument, NULL, 'f'},
         {"run-user",      required_argument, NULL, 'u'},
+        {"graceful",      no_argument,       NULL, 'G'},
         {"redirect",      no_argument,       NULL, 'R'},
         {"tcp-only",      no_argument,       NULL, 'T'},
         {"udp-only",      no_argument,       NULL, 'U'},
@@ -277,6 +280,9 @@ static void parse_command_args(int argc, char* argv[]) {
             case 'u':
                 run_as_user(optarg, argv);
                 break;
+            case 'G':
+                g_options |= OPTION_HFCLS;
+                break;
             case 'R':
                 g_options |= OPTION_DNAT;
                 strcpy(g_bind_ipstr4, IP4STR_WILDCARD);
@@ -370,6 +376,7 @@ int main(int argc, char* argv[]) {
     if (g_options & OPTION_TCP) LOGINF("[main] enable tcp transparent proxy");
     if (g_options & OPTION_UDP) LOGINF("[main] enable udp transparent proxy");
     if (g_options & OPTION_DNAT) LOGINF("[main] use redirect instead of tproxy");
+    if (g_options & OPTION_HFCLS) LOGINF("[main] gracefully close tcp connection");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
@@ -482,7 +489,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
 
     int sockfd = -1;
     uv_fileno((void *)client_stream, &sockfd);
-    set_keepalive(sockfd); /* enable SO_KEEPALIVE */
+    if (g_options & OPTION_HFCLS) set_keepalive(sockfd);
     skaddr6_t skaddr; char ipstr[IP6STRLEN]; portno_t portno;
 
     IF_VERBOSE {
@@ -530,7 +537,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     }
 
     uv_fileno((void *)socks5_stream, &sockfd);
-    set_keepalive(sockfd); /* enable SO_KEEPALIVE */
+    if (g_options & OPTION_HFCLS) set_keepalive(sockfd);
 
     tcpcontext_t *context = malloc(sizeof(tcpcontext_t));
     context->client_stream = client_stream;
@@ -539,7 +546,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status) {
     context->socks5_buffer = malloc(g_tcpbufsiz);
     context->client_wrtreq = malloc(sizeof(uv_write_t));
     context->socks5_wrtreq = malloc(sizeof(uv_write_t));
-    context->is_half_close = false;
+    context->is_half_close = g_options & OPTION_HFCLS ? false : true;
     client_stream->data = context;
     socks5_stream->data = context;
 
