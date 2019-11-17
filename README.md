@@ -55,6 +55,8 @@ $ ipt2socks --help
 usage: ipt2socks <options...>. the existing options are as follows:
  -s, --server-addr <addr>           socks5 server ip address, <required>
  -p, --server-port <port>           socks5 server port number, <required>
+ -a, --auth-username <user>         username for socks5 authentication
+ -k, --auth-password <passwd>       password for socks5 authentication
  -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1
  -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1
  -l, --listen-port <port>           listen port number, default: 60080
@@ -76,6 +78,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
 ```
 - -s 选项指定 socks5 服务器的监听地址。
 - -p 选项指定 socks5 服务器的监听端口。
+- -a 选项指定 socks5 服务器的认证用户。
+- -k 选项指定 socks5 服务器的认证密码。
 - -b 选项指定 ipt2socks 的 IPv4 监听地址。
 - -B 选项指定 ipt2socks 的 IPv6 监听地址。
 - -l 选项指定 ipt2socks 的透明代理监听端口。

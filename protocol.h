@@ -10,6 +10,14 @@
 
 /* method code constant definition */
 #define SOCKS5_METHOD_NOAUTH 0x00
+#define SOCKS5_METHOD_USRPWD 0x02
+
+/* usrpwd-auth constant definition */
+#define SOCKS5_USRPWD_VERSION 0x01
+#define SOCKS5_USRPWD_AUTHSUCC 0x00
+#define SOCKS5_USRPWD_USRMAXLEN 255
+#define SOCKS5_USRPWD_PWDMAXLEN 255
+#define SOCKS5_USRPWD_REQMAXLEN (1 + 1 + SOCKS5_USRPWD_USRMAXLEN + 1 + SOCKS5_USRPWD_PWDMAXLEN)
 
 /* command type constant definition */
 #define SOCKS5_COMMAND_CONNECT 0x01
@@ -62,6 +70,21 @@ typedef struct {
     uint8_t version; /* 0x05 */
     uint8_t method; /* 0x00 */
 } __attribute__((packed)) socks5_authresp_t;
+
+/* socks5 username-password request */
+typedef struct {
+    uint8_t version; /* 0x01 */
+    // USERNAME_LEN, sizeof=1, range=1~255
+    // USERNAME_STR, sizeof=1~255, without '\0'
+    // PASSWORD_LEN, sizeof=1, range=1~255
+    // PASSWORD_STR, sizeof=1~255, without '\0'
+} __attribute__((packed)) socks5_usrpwdreq_t;
+
+/* socks5 username-password response */
+typedef struct {
+    uint8_t version; /* 0x01 */
+    uint8_t respcode; /* 0x00=SUCC, other=FAIL */
+} __attribute__((packed)) socks5_usrpwdresp_t;
 
 /* socks5 ipv4-proxy request */
 typedef struct {

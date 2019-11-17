@@ -43,7 +43,7 @@ enum {
 #define BIND_PORT_DEFAULT 60080
 
 /* ipt2socks version string */
-#define IPT2SOCKS_VERSION "ipt2socks v1.0.1 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.0.2 <https://github.com/zfl9/ipt2socks>"
 
 /* tcp stream context typedef */
 typedef struct {
@@ -63,6 +63,7 @@ static void tcp_socket_listen_cb(uv_stream_t *listener, int status);
 static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
 static void tcp_common_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
 static void tcp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void tcp_socks5_usrpwd_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void tcp_stream_write_cb(uv_write_t *writereq, int status);
@@ -72,6 +73,7 @@ static void udp_socket_listen_cb(uv_poll_t *listener, int status, int events);
 static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status);
 static void udp_socks5_tcp_alloc_cb(uv_handle_t *stream, size_t sugsize, uv_buf_t *uvbuf);
 static void udp_socks5_auth_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
+static void udp_socks5_usrpwd_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_socks5_resp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_socks5_tcp_read_cb(uv_stream_t *stream, ssize_t nread, const uv_buf_t *uvbuf);
 static void udp_client_alloc_cb(uv_handle_t *client, size_t sugsize, uv_buf_t *uvbuf);
@@ -82,34 +84,37 @@ static void udp_cltentry_release(cltentry_t *entry);
 static void udp_svrentry_release(svrentry_t *entry);
 
 /* static global variable definition */
-static bool        g_verbose                           = false;
-static uint8_t     g_options                           = OPTION_DEFAULT;
-static uint8_t     g_nthreads                          = THREAD_NUMBERS_DEFAULT;
-static uint32_t    g_tcpbufsiz                         = TCP_SKBUFSIZE_DEFAULT;
-static uint16_t    g_udpidletmo                        = UDP_IDLE_TIMEO_DEFAULT;
+static bool        g_verbose                                = false;
+static uint8_t     g_options                                = OPTION_DEFAULT;
+static uint8_t     g_nthreads                               = THREAD_NUMBERS_DEFAULT;
+static uint32_t    g_tcpbufsiz                              = TCP_SKBUFSIZE_DEFAULT;
+static uint16_t    g_udpidletmo                             = UDP_IDLE_TIMEO_DEFAULT;
 
-static char        g_bind_ipstr4[IP4STRLEN]            = BIND_IPV4_DEFAULT;
-static char        g_bind_ipstr6[IP6STRLEN]            = BIND_IPV6_DEFAULT;
-static portno_t    g_bind_portno                       = BIND_PORT_DEFAULT;
-static skaddr4_t   g_bind_skaddr4                      = {0};
-static skaddr6_t   g_bind_skaddr6                      = {0};
+static char        g_bind_ipstr4[IP4STRLEN]                 = BIND_IPV4_DEFAULT;
+static char        g_bind_ipstr6[IP6STRLEN]                 = BIND_IPV6_DEFAULT;
+static portno_t    g_bind_portno                            = BIND_PORT_DEFAULT;
+static skaddr4_t   g_bind_skaddr4                           = {0};
+static skaddr6_t   g_bind_skaddr6                           = {0};
 
-static bool        g_server_isipv4                     = true;
-static char        g_server_ipstr[IP6STRLEN]           = {0};
-static portno_t    g_server_portno                     = 0;
-static skaddr6_t   g_server_skaddr                     = {0};
+static bool        g_server_isipv4                          = true;
+static char        g_server_ipstr[IP6STRLEN]                = {0};
+static portno_t    g_server_portno                          = 0;
+static skaddr6_t   g_server_skaddr                          = {0};
 
-static cltcache_t *g_udp_cltcache                      = NULL;
-static svrcache_t *g_udp_svrcache                      = NULL;
-static char        g_udp_ipstrbuf[IP6STRLEN]           = {0};
-static char        g_udp_packetbuf[UDP_PACKET_MAXSIZE] = {0};
-static char        g_udp_socks5buf[SOCKS5_HDR_MAXSIZE] = {0};
+static uint8_t     g_usrpwd_reqbuf[SOCKS5_USRPWD_REQMAXLEN] = {0};
+static uint16_t    g_usrpwd_reqlen                          = 0;
 
-/* socks5 authentication request constant */
-static const socks5_authreq_t G_SOCKS5_AUTH_REQUEST = {
+static cltcache_t *g_udp_cltcache                           = NULL;
+static svrcache_t *g_udp_svrcache                           = NULL;
+static char        g_udp_ipstrbuf[IP6STRLEN]                = {0};
+static char        g_udp_packetbuf[UDP_PACKET_MAXSIZE]      = {0};
+static char        g_udp_socks5buf[SOCKS5_HDR_MAXSIZE]      = {0};
+
+/* socks5 authentication request (noauth/usrpwd) */
+static socks5_authreq_t g_socks5_auth_request = {
     .version = SOCKS5_VERSION,
     .mlength = 1,
-    .method = SOCKS5_METHOD_NOAUTH,
+    .method = SOCKS5_METHOD_NOAUTH, /* noauth by default */
 };
 
 /* socks5 udp4 association request constant */
@@ -137,6 +142,8 @@ static void print_command_help(void) {
     printf("usage: ipt2socks <options...>. the existing options are as follows:\n"
            " -s, --server-addr <addr>           socks5 server ip address, <required>\n"
            " -p, --server-port <port>           socks5 server port number, <required>\n"
+           " -a, --auth-username <user>         username for socks5 authentication\n"
+           " -k, --auth-password <passwd>       password for socks5 authentication\n"
            " -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1\n"
            " -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1\n"
            " -l, --listen-port <port>           listen port number, default: 60080\n"
@@ -160,10 +167,12 @@ static void print_command_help(void) {
 
 /* parsing command line arguments */
 static void parse_command_args(int argc, char* argv[]) {
-    const char *optstr = ":s:p:b:B:l:j:n:o:c:f:u:GRTU46vVh";
+    const char *optstr = ":s:p:a:k:b:B:l:j:n:o:c:f:u:GRTU46vVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
+        {"auth-username", required_argument, NULL, 'a'},
+        {"auth-password", required_argument, NULL, 'k'},
         {"listen-addr4",  required_argument, NULL, 'b'},
         {"listen-addr6",  required_argument, NULL, 'B'},
         {"listen-port",   required_argument, NULL, 'l'},
@@ -184,6 +193,9 @@ static void parse_command_args(int argc, char* argv[]) {
         {"help",          no_argument,       NULL, 'h'},
         {NULL,            0,                 NULL,   0},
     };
+
+    const char *opt_auth_username = NULL;
+    const char *opt_auth_password = NULL;
 
     opterr = 0;
     int optindex = -1;
@@ -212,6 +224,20 @@ static void parse_command_args(int argc, char* argv[]) {
                     printf("[parse_command_args] invalid server port number: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
+                break;
+            case 'a':
+                if (strlen(optarg) > SOCKS5_USRPWD_USRMAXLEN) {
+                    printf("[parse_command_args] socks5 username max length is 255: %s\n", optarg);
+                    goto PRINT_HELP_AND_EXIT;
+                }
+                opt_auth_username = optarg;
+                break;
+            case 'k':
+                if (strlen(optarg) > SOCKS5_USRPWD_PWDMAXLEN) {
+                    printf("[parse_command_args] socks5 password max length is 255: %s\n", optarg);
+                    goto PRINT_HELP_AND_EXIT;
+                }
+                opt_auth_password = optarg;
                 break;
             case 'b':
                 if (strlen(optarg) + 1 > IP4STRLEN) {
@@ -341,6 +367,42 @@ static void parse_command_args(int argc, char* argv[]) {
     if (!(g_options & (OPTION_IPV4 | OPTION_IPV6))) {
         printf("[parse_command_args] both ipv4 and ipv6 are disabled, nothing to do\n");
         goto PRINT_HELP_AND_EXIT;
+    }
+
+    if (opt_auth_username && !opt_auth_password) {
+        printf("[parse_command_args] username specified, but password is not provided\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+    if (!opt_auth_username && opt_auth_password) {
+        printf("[parse_command_args] password specified, but username is not provided\n");
+        goto PRINT_HELP_AND_EXIT;
+    }
+    if (opt_auth_username && opt_auth_password) {
+        /* change auth method to usrpwd */
+        g_socks5_auth_request.method = SOCKS5_METHOD_USRPWD;
+
+        /* socks5-usrpwd-request version */
+        socks5_usrpwdreq_t *usrpwdreq = (void *)g_usrpwd_reqbuf;
+        usrpwdreq->version = SOCKS5_USRPWD_VERSION;
+
+        /* socks5-usrpwd-request usernamelen */
+        uint8_t *usrlenptr = (void *)usrpwdreq + 1;
+        *usrlenptr = strlen(opt_auth_username);
+
+        /* socks5-usrpwd-request usernamestr */
+        char *usrbufptr = (void *)usrlenptr + 1;
+        memcpy(usrbufptr, opt_auth_username, *usrlenptr);
+
+        /* socks5-usrpwd-request passwordlen */
+        uint8_t *pwdlenptr = (void *)usrbufptr + *usrlenptr;
+        *pwdlenptr = strlen(opt_auth_password);
+
+        /* socks5-usrpwd-request passwordstr */
+        char *pwdbufptr = (void *)pwdlenptr + 1;
+        memcpy(pwdbufptr, opt_auth_password, *pwdlenptr);
+
+        /* socks5-usrpwd-request total_length */
+        g_usrpwd_reqlen = 1 + 1 + *usrlenptr + 1 + *pwdlenptr;
     }
 
     if (!(g_options & OPTION_TCP)) g_nthreads = 1;
@@ -583,7 +645,7 @@ static void tcp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] connected to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
 
     IF_VERBOSE LOGINF("[tcp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
-    uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
+    uv_buf_t uvbufs[] = {{.base = (void *)&g_socks5_auth_request, .len = sizeof(socks5_authreq_t)}};
     status = uv_try_write(socks5_stream, uvbufs, 1);
     if (status < 0) {
         LOGERR("[tcp_socks5_tcp_connect_cb] failed to send authreq to socks5 server: (%d) %s", -status, uv_strerror(status));
@@ -615,6 +677,7 @@ static void tcp_socks5_auth_read_cb(uv_stream_t *socks5_stream, ssize_t nread, c
     uv_read_stop(socks5_stream);
     tcpcontext_t *context = socks5_stream->data;
     uv_stream_t *client_stream = (void *)context->client_stream;
+    bool is_usrpwd_auth = g_socks5_auth_request.method == SOCKS5_METHOD_USRPWD;
 
     if (nread < 0) {
         LOGERR("[tcp_socks5_auth_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
@@ -631,22 +694,75 @@ static void tcp_socks5_auth_read_cb(uv_stream_t *socks5_stream, ssize_t nread, c
         LOGERR("[tcp_socks5_auth_read_cb] auth response version is not SOCKS5: %#hhx", authresp->version);
         goto CLOSE_STREAM_PAIR;
     }
-    if (authresp->method != SOCKS5_METHOD_NOAUTH) {
-        LOGERR("[tcp_socks5_auth_read_cb] auth response method is not NOAUTH: %#hhx", authresp->method);
+    if (authresp->method != g_socks5_auth_request.method) {
+        LOGERR("[tcp_socks5_auth_read_cb] auth response method is not %s: %#hhx", is_usrpwd_auth ? "USRPWD" : "NOAUTH", authresp->method);
         goto CLOSE_STREAM_PAIR;
     }
 
-    IF_VERBOSE LOGINF("[tcp_socks5_auth_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    IF_VERBOSE LOGINF("[tcp_socks5_auth_read_cb] send %sreq to socks5 server: %s#%hu", is_usrpwd_auth ? "usrpwd" : "proxy", g_server_ipstr, g_server_portno);
+    uv_buf_t uvbufs[] = {{.base = NULL, .len = 0}};
+    if (is_usrpwd_auth) {
+        uvbufs[0].base = (void *)g_usrpwd_reqbuf;
+        uvbufs[0].len = g_usrpwd_reqlen;
+    } else {
+        socks5_ipv4req_t *proxyreq = context->client_buffer;
+        uvbufs[0].base = (void *)proxyreq;
+        uvbufs[0].len = proxyreq->addrtype == SOCKS5_ADDRTYPE_IPV4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
+    }
+    nread = uv_try_write(socks5_stream, uvbufs, 1);
+    if (nread < 0) {
+        LOGERR("[tcp_socks5_auth_read_cb] failed to send %sreq to socks5 server: (%zd) %s", is_usrpwd_auth ? "usrpwd" : "proxy", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    } else if ((size_t)nread < uvbufs[0].len) {
+        LOGERR("[tcp_socks5_auth_read_cb] socks5 %sreq was not completely sent: %zd < %zu", is_usrpwd_auth ? "usrpwd" : "proxy", nread, uvbufs[0].len);
+        goto CLOSE_STREAM_PAIR;
+    }
+    uv_read_start(socks5_stream, tcp_common_alloc_cb, is_usrpwd_auth ? tcp_socks5_usrpwd_read_cb : tcp_socks5_resp_read_cb);
+    return;
+
+CLOSE_STREAM_PAIR:
+    uv_close((void *)socks5_stream, tcp_stream_close_cb);
+    uv_close((void *)client_stream, tcp_stream_close_cb);
+}
+
+/* receive authentication result of username-password */
+static void tcp_socks5_usrpwd_read_cb(uv_stream_t *socks5_stream, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(socks5_stream);
+    tcpcontext_t *context = socks5_stream->data;
+    uv_stream_t *client_stream = (void *)context->client_stream;
+
+    if (nread < 0) {
+        LOGERR("[tcp_socks5_usrpwd_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    if (nread != sizeof(socks5_usrpwdresp_t)) {
+        LOGERR("[tcp_socks5_usrpwd_read_cb] usrpwd response length is incorrect: %zd != %zu", nread, sizeof(socks5_usrpwdresp_t));
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    socks5_usrpwdresp_t *usrpwdresp = (void *)uvbuf->base;
+    if (usrpwdresp->version != SOCKS5_USRPWD_VERSION) {
+        LOGERR("[tcp_socks5_usrpwd_read_cb] usrpwd response version is not VER01: %#hhx", usrpwdresp->version);
+        goto CLOSE_STREAM_PAIR;
+    }
+    if (usrpwdresp->respcode != SOCKS5_USRPWD_AUTHSUCC) {
+        LOGERR("[tcp_socks5_usrpwd_read_cb] usrpwd response respcode is not SUCC: %#hhx", usrpwdresp->respcode);
+        goto CLOSE_STREAM_PAIR;
+    }
+
+    IF_VERBOSE LOGINF("[tcp_socks5_usrpwd_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     socks5_ipv4req_t *proxyreq = context->client_buffer;
     bool isipv4 = proxyreq->addrtype == SOCKS5_ADDRTYPE_IPV4;
     int length = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
     uv_buf_t uvbufs[] = {{.base = context->client_buffer, .len = length}};
     nread = uv_try_write(socks5_stream, uvbufs, 1);
     if (nread < 0) {
-        LOGERR("[tcp_socks5_auth_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        LOGERR("[tcp_socks5_usrpwd_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
         goto CLOSE_STREAM_PAIR;
     } else if (nread < length) {
-        LOGERR("[tcp_socks5_auth_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
+        LOGERR("[tcp_socks5_usrpwd_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
         goto CLOSE_STREAM_PAIR;
     }
     uv_read_start(socks5_stream, tcp_common_alloc_cb, tcp_socks5_resp_read_cb);
@@ -934,7 +1050,7 @@ static void udp_socks5_tcp_connect_cb(uv_connect_t *connreq, int status) {
     IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] connected to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
 
     IF_VERBOSE LOGINF("[udp_socks5_tcp_connect_cb] send authreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
-    uv_buf_t uvbufs[] = {{.base = (void *)&G_SOCKS5_AUTH_REQUEST, .len = sizeof(socks5_authreq_t)}};
+    uv_buf_t uvbufs[] = {{.base = (void *)&g_socks5_auth_request, .len = sizeof(socks5_authreq_t)}};
     status = uv_try_write(tcp_handle, uvbufs, 1);
     if (status < 0) {
         LOGERR("[udp_socks5_tcp_connect_cb] failed to send authreq to socks5 server: (%d) %s", -status, uv_strerror(status));
@@ -963,6 +1079,7 @@ static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     if (nread == 0) return;
     uv_read_stop(tcp_handle);
     cltentry_t *client_entry = tcp_handle->data;
+    bool is_usrpwd_auth = g_socks5_auth_request.method == SOCKS5_METHOD_USRPWD;
 
     if (nread < 0) {
         LOGERR("[udp_socks5_auth_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
@@ -979,12 +1096,65 @@ static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
         LOGERR("[udp_socks5_auth_read_cb] auth response version is not SOCKS5: %#hhx", authresp->version);
         goto RELEASE_CLIENT_ENTRY;
     }
-    if (authresp->method != SOCKS5_METHOD_NOAUTH) {
-        LOGERR("[udp_socks5_auth_read_cb] auth response method is not NOAUTH: %#hhx", authresp->method);
+    if (authresp->method != g_socks5_auth_request.method) {
+        LOGERR("[udp_socks5_auth_read_cb] auth response method is not %s: %#hhx", is_usrpwd_auth ? "USRPWD" : "NOAUTH", authresp->method);
         goto RELEASE_CLIENT_ENTRY;
     }
 
-    IF_VERBOSE LOGINF("[udp_socks5_auth_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
+    IF_VERBOSE LOGINF("[udp_socks5_auth_read_cb] send %sreq to socks5 server: %s#%hu", is_usrpwd_auth ? "usrpwd" : "proxy", g_server_ipstr, g_server_portno);
+    uv_buf_t uvbufs[] = {{.base = NULL, .len = 0}};
+    if (is_usrpwd_auth) {
+        uvbufs[0].base = (void *)g_usrpwd_reqbuf;
+        uvbufs[0].len = g_usrpwd_reqlen;
+    } else {
+        socks5_udp4msg_t *udpmsghdr = (void *)client_entry->udp_handle + 2;
+        bool isipv4 = udpmsghdr->addrtype == SOCKS5_ADDRTYPE_IPV4;
+        uvbufs[0].base = isipv4 ? (void *)&G_SOCKS5_UDP4_REQUEST : (void *)&G_SOCKS5_UDP6_REQUEST;
+        uvbufs[0].len = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
+    }
+    nread = uv_try_write(tcp_handle, uvbufs, 1);
+    if (nread < 0) {
+        LOGERR("[udp_socks5_auth_read_cb] failed to send %sreq to socks5 server: (%zd) %s", is_usrpwd_auth ? "usrpwd" : "proxy", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    } else if ((size_t)nread < uvbufs[0].len) {
+        LOGERR("[udp_socks5_auth_read_cb] socks5 %sreq was not completely sent: %zd < %zu", is_usrpwd_auth ? "usrpwd" : "proxy", nread, uvbufs[0].len);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, is_usrpwd_auth ? udp_socks5_usrpwd_read_cb : udp_socks5_resp_read_cb);
+    return;
+
+RELEASE_CLIENT_ENTRY:
+    cltcache_del(&g_udp_cltcache, client_entry);
+    udp_cltentry_release(client_entry);
+}
+
+/* receive authentication result of username-password */
+static void udp_socks5_usrpwd_read_cb(uv_stream_t *tcp_handle, ssize_t nread, const uv_buf_t *uvbuf) {
+    if (nread == 0) return;
+    uv_read_stop(tcp_handle);
+    cltentry_t *client_entry = tcp_handle->data;
+
+    if (nread < 0) {
+        LOGERR("[udp_socks5_usrpwd_read_cb] failed to read data from socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    if (nread != sizeof(socks5_usrpwdresp_t)) {
+        LOGERR("[udp_socks5_usrpwd_read_cb] usrpwd response length is incorrect: %zd != %zu", nread, sizeof(socks5_usrpwdresp_t));
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    socks5_usrpwdresp_t *usrpwdresp = (void *)uvbuf->base;
+    if (usrpwdresp->version != SOCKS5_USRPWD_VERSION) {
+        LOGERR("[udp_socks5_usrpwd_read_cb] usrpwd response version is not VER01: %#hhx", usrpwdresp->version);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+    if (usrpwdresp->respcode != SOCKS5_USRPWD_AUTHSUCC) {
+        LOGERR("[udp_socks5_usrpwd_read_cb] usrpwd response respcode is not SUCC: %#hhx", usrpwdresp->respcode);
+        goto RELEASE_CLIENT_ENTRY;
+    }
+
+    IF_VERBOSE LOGINF("[udp_socks5_usrpwd_read_cb] send proxyreq to socks5 server: %s#%hu", g_server_ipstr, g_server_portno);
     socks5_udp4msg_t *udpmsghdr = (void *)client_entry->udp_handle + 2;
     bool isipv4 = udpmsghdr->addrtype == SOCKS5_ADDRTYPE_IPV4;
     void *buffer = isipv4 ? (void *)&G_SOCKS5_UDP4_REQUEST : (void *)&G_SOCKS5_UDP6_REQUEST;
@@ -992,10 +1162,10 @@ static void udp_socks5_auth_read_cb(uv_stream_t *tcp_handle, ssize_t nread, cons
     uv_buf_t uvbufs[] = {{.base = buffer, .len = length}};
     nread = uv_try_write(tcp_handle, uvbufs, 1);
     if (nread < 0) {
-        LOGERR("[udp_socks5_auth_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
+        LOGERR("[udp_socks5_usrpwd_read_cb] failed to send proxyreq to socks5 server: (%zd) %s", -nread, uv_strerror(nread));
         goto RELEASE_CLIENT_ENTRY;
     } else if (nread < length) {
-        LOGERR("[udp_socks5_auth_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
+        LOGERR("[udp_socks5_usrpwd_read_cb] socks5 proxyreq was not completely sent: %zd < %d", nread, length);
         goto RELEASE_CLIENT_ENTRY;
     }
     uv_read_start(tcp_handle, udp_socks5_tcp_alloc_cb, udp_socks5_resp_read_cb);
