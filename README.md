@@ -1,6 +1,8 @@
 # ipt2socks
 类似 [redsocks](https://github.com/darkk/redsocks)、[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量。除此之外，ipt2socks 不提供任何非必要的功能（即：KISS 原则，`keep it simple, stupid`，保持简单和愚蠢）。ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
 
+**TODO: libuv-based 版本实现质量不佳，bug 过多，无力维护，已打算使用 libev 进行完全重构。**
+
 ## 简要说明
 - IPv4 和 IPv6 双栈支持，支持 **纯 TPROXY** 透明代理模式，专为 [ss-tproxy](https://github.com/zfl9/ss-tproxy) 而写。
 - TCP 透明代理提供 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
