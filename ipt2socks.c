@@ -454,6 +454,7 @@ int main(int argc, char* argv[]) {
 
 /* event loop */
 static void* run_event_loop(void *is_main_thread) {
+    bool is_reuse_port = g_nthreads >= 2;
     uv_loop_t *evloop = &(uv_loop_t){0};
     uv_loop_init(evloop);
 
@@ -463,7 +464,7 @@ static void* run_event_loop(void *is_main_thread) {
             tcplistener->data = (void *)1; /* is_ipv4 */
 
             uv_tcp_init(evloop, tcplistener);
-            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp4_bindsock() : new_tcp4_bindsock_tproxy());
+            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp4_bindsock(is_reuse_port) : new_tcp4_bindsock_tproxy(is_reuse_port));
 
             int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr4, 0);
             if (retval < 0) {
@@ -482,7 +483,7 @@ static void* run_event_loop(void *is_main_thread) {
             tcplistener->data = NULL; /* is_ipv4 */
 
             uv_tcp_init(evloop, tcplistener);
-            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp6_bindsock() : new_tcp6_bindsock_tproxy());
+            uv_tcp_open(tcplistener, (g_options & OPTION_DNAT) ? new_tcp6_bindsock(is_reuse_port) : new_tcp6_bindsock_tproxy(is_reuse_port));
 
             int retval = uv_tcp_bind(tcplistener, (void *)&g_bind_skaddr6, 0);
             if (retval < 0) {
