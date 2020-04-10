@@ -454,7 +454,7 @@ int main(int argc, char* argv[]) {
 
 /* event loop */
 static void* run_event_loop(void *is_main_thread) {
-    bool is_reuse_port = g_nthreads >= 2;
+    const bool is_reuse_port = true; //g_nthreads >= 2;
     uv_loop_t *evloop = &(uv_loop_t){0};
     uv_loop_init(evloop);
 
