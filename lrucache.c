@@ -1,76 +1,70 @@
 #define _GNU_SOURCE
 #include "lrucache.h"
-#include <stdlib.h>
-#include <string.h>
 #undef _GNU_SOURCE
 
-/* lrucache maxsize (private variable) */
-static uint16_t lrucache_maxsize = LRUCACHE_MAXSIZE_DEFAULT;
+static uint16_t g_lrucache_maxsize = 256;
 
-/* get/set the maxsize of lrucache (globalvar) */
 uint16_t lrucache_get_maxsize(void) {
-    return lrucache_maxsize;
+    return g_lrucache_maxsize;
 }
 void lrucache_set_maxsize(uint16_t maxsize) {
-    lrucache_maxsize = maxsize;
+    g_lrucache_maxsize = maxsize;
 }
 
-/* put the given entry into the lrucache, return another removed entry */
-cltentry_t* cltcache_put(cltcache_t **cache, cltentry_t *entry) {
-    HASH_ADD(hh, *cache, clt_ipport, sizeof(ip_port_t), entry);
-    if (HASH_COUNT(*cache) > lrucache_maxsize) {
-        cltentry_t *curentry = NULL, *tmpentry = NULL;
-        HASH_ITER(hh, *cache, curentry, tmpentry) {
-            HASH_DEL(*cache, curentry);
+udp_socks5ctx_t* udp_socks5ctx_add(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry) {
+    MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
+    if (MYHASH_CNT(*cache) > g_lrucache_maxsize) {
+        udp_socks5ctx_t *curentry = NULL, *tmpentry = NULL;
+        MYHASH_FOR(*cache, curentry, tmpentry) {
+            MYHASH_DEL(*cache, curentry);
             return curentry;
         }
     }
     return NULL;
 }
-svrentry_t* svrcache_put(svrcache_t **cache, svrentry_t *entry) {
-    HASH_ADD(hh, *cache, svr_ipport, sizeof(ip_port_t), entry);
-    if (HASH_COUNT(*cache) > lrucache_maxsize) {
-        svrentry_t *curentry = NULL, *tmpentry = NULL;
-        HASH_ITER(hh, *cache, curentry, tmpentry) {
-            HASH_DEL(*cache, curentry);
+udp_tproxyctx_t* udp_tproxyctx_add(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry) {
+    MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
+    if (MYHASH_CNT(*cache) > g_lrucache_maxsize) {
+        udp_tproxyctx_t *curentry = NULL, *tmpentry = NULL;
+        MYHASH_FOR(*cache, curentry, tmpentry) {
+            MYHASH_DEL(*cache, curentry);
             return curentry;
         }
     }
     return NULL;
 }
 
-/* get the entry associated with the given key, return NULL if not exists */
-cltentry_t* cltcache_get(cltcache_t **cache, ip_port_t *keyptr) {
-    cltentry_t *entry = NULL;
-    HASH_FIND(hh, *cache, keyptr, sizeof(ip_port_t), entry);
-    if (!entry) return NULL;
-    HASH_DEL(*cache, entry);
-    HASH_ADD(hh, *cache, clt_ipport, sizeof(ip_port_t), entry);
+udp_socks5ctx_t* udp_socks5ctx_get(udp_socks5ctx_t **cache, const ip_port_t *keyptr) {
+    udp_socks5ctx_t *entry = NULL;
+    MYHASH_GET(*cache, entry, keyptr, sizeof(ip_port_t));
+    if (entry) {
+        MYHASH_DEL(*cache, entry);
+        MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
+    }
     return entry;
 }
-svrentry_t* svrcache_get(svrcache_t **cache, ip_port_t *keyptr) {
-    svrentry_t *entry = NULL;
-    HASH_FIND(hh, *cache, keyptr, sizeof(ip_port_t), entry);
-    if (!entry) return NULL;
-    HASH_DEL(*cache, entry);
-    HASH_ADD(hh, *cache, svr_ipport, sizeof(ip_port_t), entry);
+udp_tproxyctx_t* udp_tproxyctx_get(udp_tproxyctx_t **cache, const ip_port_t *keyptr) {
+    udp_tproxyctx_t *entry = NULL;
+    MYHASH_GET(*cache, entry, keyptr, sizeof(ip_port_t));
+    if (entry) {
+        MYHASH_DEL(*cache, entry);
+        MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
+    }
     return entry;
 }
 
-/* move the given entry to the end of the lrucache (indicates that it is used) */
-void cltcache_use(cltcache_t **cache, cltentry_t *entry) {
-    HASH_DEL(*cache, entry);
-    HASH_ADD(hh, *cache, clt_ipport, sizeof(ip_port_t), entry);
+void udp_socks5ctx_use(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry) {
+    MYHASH_DEL(*cache, entry);
+    MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
 }
-void svrcache_use(svrcache_t **cache, svrentry_t *entry) {
-    HASH_DEL(*cache, entry);
-    HASH_ADD(hh, *cache, svr_ipport, sizeof(ip_port_t), entry);
+void udp_tproxyctx_use(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry) {
+    MYHASH_DEL(*cache, entry);
+    MYHASH_ADD(*cache, entry, &entry->key_ipport, sizeof(entry->key_ipport));
 }
 
-/* delete the given entry from the lrucache (remove only, do not release memory) */
-void cltcache_del(cltcache_t **cache, cltentry_t *entry) {
-    HASH_DEL(*cache, entry);
+void udp_socks5ctx_del(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry) {
+    MYHASH_DEL(*cache, entry);
 }
-void svrcache_del(svrcache_t **cache, svrentry_t *entry) {
-    HASH_DEL(*cache, entry);
+void udp_tproxyctx_del(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry) {
+    MYHASH_DEL(*cache, entry);
 }

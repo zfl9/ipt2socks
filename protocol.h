@@ -39,25 +39,6 @@
 #define SOCKS5_RESPCODE_ADDRTYPENOTSPT 0x08
 #define SOCKS5_RESPCODE_09FFUNASSIGNED 0x09
 
-/* get a string description of the given response code */
-static inline const char* socks5_rcode2string(uint8_t rcode) {
-    switch (rcode) {
-        case SOCKS5_RESPCODE_SUCCEEDED: return "Succeeded";
-        case SOCKS5_RESPCODE_SVRGENERR: return "General server failure";
-        case SOCKS5_RESPCODE_NOTALLOWED: return "Not allowed by ruleset";
-        case SOCKS5_RESPCODE_NETUNREACH: return "Network unreachable";
-        case SOCKS5_RESPCODE_HOSTUNREACH: return "Host unreachable";
-        case SOCKS5_RESPCODE_CONNREFUSED: return "Connection refused";
-        case SOCKS5_RESPCODE_TTLEXPIRED: return "TTL expired";
-        case SOCKS5_RESPCODE_COMMANDNOTSPT: return "Command not supported";
-        case SOCKS5_RESPCODE_ADDRTYPENOTSPT: return "Address type not supported";
-    }
-    return "Unknown response code";
-}
-
-/* socks5 tcp protocol header maxsize */
-#define SOCKS5_HDR_MAXSIZE (sizeof(socks5_ipv6resp_t)) /* 22 bytes */
-
 /* socks5 authentication request */
 typedef struct {
     uint8_t version; /* 0x05 */
@@ -145,5 +126,20 @@ typedef struct {
     portno_t  portnum;
     uint8_t   payload[]; /* sizeof = 0 */
 } __attribute__((packed)) socks5_udp6msg_t;
+
+extern socks5_authreq_t g_socks5_auth_request;
+
+extern char     g_socks5_usrpwd_request[];
+extern uint16_t g_socks5_usrpwd_requestlen;
+
+extern const socks5_ipv4req_t G_SOCKS5_UDP4_REQUEST;
+extern const socks5_ipv6req_t G_SOCKS5_UDP6_REQUEST;
+
+void socks5_usrpwd_request_make(const char *username, const char *password);
+void socks5_proxy_request_make(socks5_ipv4req_t *request, const void *skaddr);
+
+bool socks5_auth_response_check(const char *funcname, const socks5_authresp_t *response);
+bool socks5_usrpwd_response_check(const char *funcname, const socks5_usrpwdresp_t *response);
+bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response, bool isipv4);
 
 #endif

@@ -4,46 +4,38 @@
 #define _GNU_SOURCE
 #include "uthash.h"
 #include "netutils.h"
+#include "libev/ev.h"
 #undef _GNU_SOURCE
 
-/* default max number of entries */
-#define LRUCACHE_MAXSIZE_DEFAULT 256
-
-/* udp client lruentry structure typedef */
 typedef struct {
-    ip_port_t       clt_ipport;
-    uv_tcp_t       *tcp_handle;
-    uv_udp_t       *udp_handle;
-    uv_timer_t     *free_timer;
-    UT_hash_handle  hh;
-} cltentry_t, cltcache_t;
+    ip_port_t  key_ipport;  // (local) source socket address
+    evio_t     tcp_watcher; // .data: len(16bit) | recvbuff
+    evio_t     udp_watcher; // .data: len(16bit) | firstmsg
+    evtimer_t  idle_timer;
+    myhash_hh  hh;
+} udp_socks5ctx_t;
 
-/* udp server lruentry structure typedef */
 typedef struct {
-    ip_port_t       svr_ipport;
-    uv_timer_t     *free_timer;
-    int             svr_sockfd;
-    UT_hash_handle  hh;
-} svrentry_t, svrcache_t;
+    ip_port_t  key_ipport; // (remote) source socket address
+    int        udp_sockfd; // bind the above socket address
+    evtimer_t  idle_timer;
+    myhash_hh  hh;
+} udp_tproxyctx_t;
 
-/* get/set the maxsize of lrucache (globalvar) */
 uint16_t lrucache_get_maxsize(void);
-void lrucache_set_maxsize(uint16_t maxsize);
+void     lrucache_set_maxsize(uint16_t maxsize);
 
-/* put the given entry into the lrucache, return another removed entry */
-cltentry_t* cltcache_put(cltcache_t **cache, cltentry_t *entry);
-svrentry_t* svrcache_put(svrcache_t **cache, svrentry_t *entry);
+/* return the removed hashentry pointer */
+udp_socks5ctx_t* udp_socks5ctx_add(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry);
+udp_tproxyctx_t* udp_tproxyctx_add(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry);
 
-/* get the entry associated with the given key, return NULL if not exists */
-cltentry_t* cltcache_get(cltcache_t **cache, ip_port_t *keyptr);
-svrentry_t* svrcache_get(svrcache_t **cache, ip_port_t *keyptr);
+udp_socks5ctx_t* udp_socks5ctx_get(udp_socks5ctx_t **cache, const ip_port_t *keyptr);
+udp_tproxyctx_t* udp_tproxyctx_get(udp_tproxyctx_t **cache, const ip_port_t *keyptr);
 
-/* move the given entry to the end of the lrucache (indicates that it is used) */
-void cltcache_use(cltcache_t **cache, cltentry_t *entry);
-void svrcache_use(svrcache_t **cache, svrentry_t *entry);
+void udp_socks5ctx_use(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry);
+void udp_tproxyctx_use(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry);
 
-/* delete the given entry from the lrucache (remove only, do not release memory) */
-void cltcache_del(cltcache_t **cache, cltentry_t *entry);
-void svrcache_del(svrcache_t **cache, svrentry_t *entry);
+void udp_socks5ctx_del(udp_socks5ctx_t **cache, udp_socks5ctx_t *entry);
+void udp_tproxyctx_del(udp_tproxyctx_t **cache, udp_tproxyctx_t *entry);
 
 #endif

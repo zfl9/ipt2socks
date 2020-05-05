@@ -5,335 +5,365 @@
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/tcp.h>
-#include <linux/limits.h>
+#include <sys/resource.h>
 #include <pwd.h>
 #include <grp.h>
 #undef _GNU_SOURCE
 
+#ifndef PATH_MAX
+  #define PATH_MAX 4096
+#endif
+
 #ifndef SO_REUSEPORT
-#define SO_REUSEPORT 15
+  #define SO_REUSEPORT 15
 #endif
 
-#ifndef SO_ORIGINAL_DST
-#define SO_ORIGINAL_DST 80
+#ifndef TCP_FASTOPEN
+  #define TCP_FASTOPEN 23
 #endif
 
-#ifndef IP6T_SO_ORIGINAL_DST
-#define IP6T_SO_ORIGINAL_DST 80
+#ifndef MSG_FASTOPEN
+  #define MSG_FASTOPEN 0x20000000
+#endif
+
+#ifndef IP_TRANSPARENT
+  #define IP_TRANSPARENT 19
+#endif
+
+#ifndef IPV6_TRANSPARENT
+  #define IPV6_TRANSPARENT 75
 #endif
 
 #ifndef IP_RECVORIGDSTADDR
-#define IP_RECVORIGDSTADDR 20
+  #define IP_RECVORIGDSTADDR 20
 #endif
 
 #ifndef IPV6_RECVORIGDSTADDR
-#define IPV6_RECVORIGDSTADDR 74
+  #define IPV6_RECVORIGDSTADDR 74
 #endif
 
-#define KEEPALIVE_CONN_IDLE_SEC 15
-#define KEEPALIVE_RETRY_MAX_COUNT 5
-#define KEEPALIVE_RETRY_INTERVAL_SEC 1
+#ifndef SO_ORIGINAL_DST
+  #define SO_ORIGINAL_DST 80
+#endif
 
-/* suppress the warning of openwrt */
+#ifndef IP6T_SO_ORIGINAL_DST
+  #define IP6T_SO_ORIGINAL_DST 80
+#endif
+
+void set_nofile_limit(size_t nofile) {
+    if (setrlimit(RLIMIT_NOFILE, &(struct rlimit){nofile, nofile}) < 0) {
+        LOGERR("[set_nofile_limit] setrlimit(nofile, %zu): %s", nofile, my_strerror(errno));
+    }
+}
+
+/* declare function prototype (openwrt?) */
 int initgroups(const char *user, gid_t group);
 
-/* setsockopt(SO_KEEPALIVE) */
-void set_keepalive(int sockfd) {
-    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int))) {
-        LOGERR("[set_keepalive] setsockopt(%d, SO_KEEPALIVE): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &(int){KEEPALIVE_CONN_IDLE_SEC}, sizeof(int))) {
-        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPIDLE): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &(int){KEEPALIVE_RETRY_MAX_COUNT}, sizeof(int))) {
-        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPCNT): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &(int){KEEPALIVE_RETRY_INTERVAL_SEC}, sizeof(int))) {
-        LOGERR("[set_keepalive] setsockopt(%d, TCP_KEEPINTVL): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(IPV6_V6ONLY) */
-void set_ipv6_only(int sockfd) {
-    if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int))) {
-        LOGERR("[set_ipv6_only] setsockopt(%d, IPV6_V6ONLY): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(SO_REUSEADDR) */
-void set_reuse_addr(int sockfd) {
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int))) {
-        LOGERR("[set_reuse_addr] setsockopt(%d, SO_REUSEADDR): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(SO_REUSEPORT) */
-void set_reuse_port(int sockfd) {
-    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int))) {
-        LOGERR("[set_reuse_port] setsockopt(%d, SO_REUSEPORT): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(IP_TRANSPARENT) */
-void set_transparent(int sockfd) {
-    if (setsockopt(sockfd, SOL_IP, IP_TRANSPARENT, &(int){1}, sizeof(int))) {
-        LOGERR("[set_transparent] setsockopt(%d, IP_TRANSPARENT): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(IP_RECVORIGDSTADDR) */
-void set_recv_origdstaddr4(int sockfd) {
-    if (setsockopt(sockfd, SOL_IP, IP_RECVORIGDSTADDR, &(int){1}, sizeof(int))) {
-        LOGERR("[set_recv_origdstaddr4] setsockopt(%d, IP_RECVORIGDSTADDR): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* setsockopt(IPV6_RECVORIGDSTADDR) */
-void set_recv_origdstaddr6(int sockfd) {
-    if (setsockopt(sockfd, SOL_IPV6, IPV6_RECVORIGDSTADDR, &(int){1}, sizeof(int))) {
-        LOGERR("[set_recv_origdstaddr6] setsockopt(%d, IPV6_RECVORIGDSTADDR): (%d) %s", sockfd, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* getsockopt(SO_ORIGINAL_DST) REDIRECT ipv4 */
-bool get_tcp_origdstaddr4(int sockfd, skaddr4_t *dstaddr) {
-    if (getsockopt(sockfd, SOL_IP, SO_ORIGINAL_DST, dstaddr, &(socklen_t){sizeof(skaddr4_t)})) {
-        LOGERR("[get_tcp_origdstaddr4] getsockopt(%d, SO_ORIGINAL_DST): (%d) %s", sockfd, errno, errstring(errno));
-        return false;
-    }
-    return true;
-}
-
-/* getsockopt(IP6T_SO_ORIGINAL_DST) REDIRECT ipv6 */
-bool get_tcp_origdstaddr6(int sockfd, skaddr6_t *dstaddr) {
-    if (getsockopt(sockfd, SOL_IPV6, IP6T_SO_ORIGINAL_DST, dstaddr, &(socklen_t){sizeof(skaddr6_t)})) {
-        LOGERR("[get_tcp_origdstaddr6] getsockopt(%d, IP6T_SO_ORIGINAL_DST): (%d) %s", sockfd, errno, errstring(errno));
-        return false;
-    }
-    return true;
-}
-
-/* get the original dest addr of the ipv4 udp packet */
-bool get_udp_origdstaddr4(struct msghdr *msg, skaddr4_t *dstaddr) {
-    for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-        if (cmsg->cmsg_level == SOL_IP && cmsg->cmsg_type == IP_RECVORIGDSTADDR) {
-            memcpy(dstaddr, CMSG_DATA(cmsg), sizeof(skaddr4_t));
-            dstaddr->sin_family = AF_INET;
-            return true;
-        }
-    }
-    return false;
-}
-
-/* get the original dest addr of the ipv6 udp packet */
-bool get_udp_origdstaddr6(struct msghdr *msg, skaddr6_t *dstaddr) {
-    for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
-        if (cmsg->cmsg_level == SOL_IPV6 && cmsg->cmsg_type == IPV6_RECVORIGDSTADDR) {
-            memcpy(dstaddr, CMSG_DATA(cmsg), sizeof(skaddr6_t));
-            dstaddr->sin6_family = AF_INET6;
-            return true;
-        }
-    }
-    return false;
-}
-
-/* create non-blocking tcp socket (ipv4) */
-int new_tcp4_socket(void) {
-    int sockfd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (sockfd < 0) {
-        LOGERR("[new_tcp4_socket] socket(AF_INET, SOCK_STREAM): (%d) %s", errno, errstring(errno));
-        exit(errno);
-    }
-    return sockfd;
-}
-
-/* create non-blocking tcp socket (ipv6) */
-int new_tcp6_socket(void) {
-    int sockfd = socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (sockfd < 0) {
-        LOGERR("[new_tcp6_socket] socket(AF_INET6, SOCK_STREAM): (%d) %s", errno, errstring(errno));
-        exit(errno);
-    }
-    return sockfd;
-}
-
-/* create non-blocking udp socket (ipv4) */
-int new_udp4_socket(void) {
-    int sockfd = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-    if (sockfd < 0) {
-        LOGERR("[new_udp4_socket] socket(AF_INET, SOCK_DGRAM): (%d) %s", errno, errstring(errno));
-        exit(errno);
-    }
-    return sockfd;
-}
-
-/* create non-blocking udp socket (ipv6) */
-int new_udp6_socket(void) {
-    int sockfd = socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK, 0);
-    if (sockfd < 0) {
-        LOGERR("[new_udp6_socket] socket(AF_INET6, SOCK_DGRAM): (%d) %s", errno, errstring(errno));
-        exit(errno);
-    }
-    return sockfd;
-}
-
-/* create tcp socket use to listen (ipv4) */
-int new_tcp4_bindsock(bool is_reuse_port) {
-    int sockfd = new_tcp4_socket();
-    set_reuse_addr(sockfd);
-    if (is_reuse_port) set_reuse_port(sockfd);
-    return sockfd;
-}
-
-/* create tcp socket use to listen (ipv6) */
-int new_tcp6_bindsock(bool is_reuse_port) {
-    int sockfd = new_tcp6_socket();
-    set_ipv6_only(sockfd);
-    set_reuse_addr(sockfd);
-    if (is_reuse_port) set_reuse_port(sockfd);
-    return sockfd;
-}
-
-/* create tcp socket use to tproxy-listen (ipv4) */
-int new_tcp4_bindsock_tproxy(bool is_reuse_port) {
-    int sockfd = new_tcp4_bindsock(is_reuse_port);
-    set_transparent(sockfd);
-    return sockfd;
-}
-
-/* create tcp socket use to tproxy-listen (ipv6) */
-int new_tcp6_bindsock_tproxy(bool is_reuse_port) {
-    int sockfd = new_tcp6_bindsock(is_reuse_port);
-    set_transparent(sockfd);
-    return sockfd;
-}
-
-/* create udp socket use to tproxy-reply (ipv4) */
-int new_udp4_respsock_tproxy(void) {
-    int sockfd = new_udp4_socket();
-    set_reuse_addr(sockfd);
-    set_transparent(sockfd);
-    return sockfd;
-}
-
-/* create udp socket use to tproxy-reply (ipv6) */
-int new_udp6_respsock_tproxy(void) {
-    int sockfd = new_udp6_socket();
-    set_ipv6_only(sockfd);
-    set_reuse_addr(sockfd);
-    set_transparent(sockfd);
-    return sockfd;
-}
-
-/* create udp socket use to tproxy-listen (ipv4) */
-int new_udp4_bindsock_tproxy(void) {
-    int sockfd = new_udp4_respsock_tproxy();
-    set_recv_origdstaddr4(sockfd);
-    return sockfd;
-}
-
-/* create udp socket use to tproxy-listen (ipv6) */
-int new_udp6_bindsock_tproxy(void) {
-    int sockfd = new_udp6_respsock_tproxy();
-    set_recv_origdstaddr6(sockfd);
-    return sockfd;
-}
-
-/* build ipv4 socket address from ipstr and portno */
-void build_ipv4_addr(skaddr4_t *addr, const char *ipstr, portno_t portno) {
-    addr->sin_family = AF_INET;
-    inet_pton(AF_INET, ipstr, &addr->sin_addr);
-    addr->sin_port = htons(portno);
-}
-
-/* build ipv6 socket address from ipstr and portno */
-void build_ipv6_addr(skaddr6_t *addr, const char *ipstr, portno_t portno) {
-    addr->sin6_family = AF_INET6;
-    inet_pton(AF_INET6, ipstr, &addr->sin6_addr);
-    addr->sin6_port = htons(portno);
-}
-
-/* parse ipstr and portno from ipv4 socket address */
-void parse_ipv4_addr(const skaddr4_t *addr, char *ipstr, portno_t *portno) {
-    inet_ntop(AF_INET, &addr->sin_addr, ipstr, IP4STRLEN);
-    *portno = ntohs(addr->sin_port);
-}
-
-/* parse ipstr and portno from ipv6 socket address */
-void parse_ipv6_addr(const skaddr6_t *addr, char *ipstr, portno_t *portno) {
-    inet_ntop(AF_INET6, &addr->sin6_addr, ipstr, IP6STRLEN);
-    *portno = ntohs(addr->sin6_port);
-}
-
-/* AF_INET or AF_INET6 or -1(invalid ip string) */
-int get_ipstr_family(const char *ipstr) {
-    if (!ipstr) return -1;
-    ipaddr_t ipaddr; /* save ipv4/ipv6 addr */
-    if (inet_pton(AF_INET, ipstr, &ipaddr) == 1) {
-        return AF_INET;
-    } else if (inet_pton(AF_INET6, ipstr, &ipaddr) == 1) {
-        return AF_INET6;
-    } else {
-        return -1;
-    }
-}
-
-/* set nofile limit (may require root privileges) */
-void set_nofile_limit(rlim_t nofile) {
-    if (setrlimit(RLIMIT_NOFILE, &(struct rlimit){nofile, nofile}) < 0) {
-        LOGERR("[set_nofile_limit] setrlimit(nofile, %lu): (%d) %s", (long unsigned)nofile, errno, errstring(errno));
-        exit(errno);
-    }
-}
-
-/* run the current process with a given user */
-void run_as_user(const char *username, char *const argv[]) {
+void run_as_user(const char *username, char *argv[]) {
     if (geteuid() != 0) return; /* ignore if current user is not root */
 
-    struct passwd *userinfo = getpwnam(username);
+    const struct passwd *userinfo = getpwnam(username);
     if (!userinfo) {
-        LOGERR("[run_as_user] the given user does not exist: %s", username);
-        exit(1);
+        LOGERR("[run_as_user] user:'%s' does not exist in this system", username);
+        return;
     }
 
     if (userinfo->pw_uid == 0) return; /* ignore if target user is root */
 
     if (setgid(userinfo->pw_gid) < 0) {
-        LOGERR("[run_as_user] failed to change group_id of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
+        LOGERR("[run_as_user] change to gid:%u of user:'%s': %s", userinfo->pw_gid, userinfo->pw_name, my_strerror(errno));
         exit(errno);
     }
 
     if (initgroups(userinfo->pw_name, userinfo->pw_gid) < 0) {
-        LOGERR("[run_as_user] failed to call initgroups() of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
+        LOGERR("[run_as_user] initgroups(%u) of user:'%s': %s", userinfo->pw_gid, userinfo->pw_name, my_strerror(errno));
         exit(errno);
     }
 
     if (setuid(userinfo->pw_uid) < 0) {
-        LOGERR("[run_as_user] failed to change user_id of user '%s': (%d) %s", userinfo->pw_name, errno, errstring(errno));
+        LOGERR("[run_as_user] change to uid:%u of user:'%s': %s", userinfo->pw_uid, userinfo->pw_name, my_strerror(errno));
         exit(errno);
     }
 
-    static char exec_file_abspath[PATH_MAX] = {0};
-    if (readlink("/proc/self/exe", exec_file_abspath, PATH_MAX - 1) < 0) {
-        LOGERR("[run_as_user] failed to get the abspath of execfile: (%d) %s", errno, errstring(errno));
+    static char execfile_abspath[PATH_MAX] = {0};
+    if (readlink("/proc/self/exe", execfile_abspath, PATH_MAX - 1) < 0) {
+        LOGERR("[run_as_user] readlink('/proc/self/exe'): %s", my_strerror(errno));
         exit(errno);
     }
 
-    if (argv && execv(exec_file_abspath, argv) < 0) {
-        LOGERR("[run_as_user] failed to call execv(%s, args): (%d) %s", exec_file_abspath, errno, errstring(errno));
+    if (execv(execfile_abspath, argv) < 0) {
+        LOGERR("[run_as_user] execv('%s', args): %s", execfile_abspath, my_strerror(errno));
         exit(errno);
     }
+}
+
+int get_ipstr_family(const char *ipstr) {
+    if (!ipstr) return -1; /* invalid */
+    ipaddr6_t ipaddr; /* save output */
+    if (inet_pton(AF_INET, ipstr, &ipaddr) == 1) {
+        return AF_INET;
+    } else if (inet_pton(AF_INET6, ipstr, &ipaddr) == 1) {
+        return AF_INET6;
+    } else {
+        return -1; /* invalid */
+    }
+}
+
+void build_socket_addr(int family, void *skaddr, const char *ipstr, portno_t portno) {
+    if (family == AF_INET) {
+        skaddr4_t *addr = skaddr;
+        addr->sin_family = AF_INET;
+        inet_pton(AF_INET, ipstr, &addr->sin_addr);
+        addr->sin_port = htons(portno);
+    } else {
+        skaddr6_t *addr = skaddr;
+        addr->sin6_family = AF_INET6;
+        inet_pton(AF_INET6, ipstr, &addr->sin6_addr);
+        addr->sin6_port = htons(portno);
+    }
+}
+
+void parse_socket_addr(const void *skaddr, char *ipstr, portno_t *portno) {
+    if (((const skaddr4_t *)skaddr)->sin_family == AF_INET) {
+        const skaddr4_t *addr = skaddr;
+        inet_ntop(AF_INET, &addr->sin_addr, ipstr, IP4STRLEN);
+        *portno = ntohs(addr->sin_port);
+    } else {
+        const skaddr6_t *addr = skaddr;
+        inet_ntop(AF_INET6, &addr->sin6_addr, ipstr, IP6STRLEN);
+        *portno = ntohs(addr->sin6_port);
+    }
+}
+
+static inline void set_non_block(int sockfd) {
+    int flags = fcntl(sockfd, F_GETFL, 0);
+    if (flags < 0) {
+        LOGERR("[set_non_block] fcntl(%d, F_GETFL): %s", sockfd, my_strerror(errno));
+        exit(errno);
+    }
+    if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) < 0) {
+        LOGERR("[set_non_block] fcntl(%d, F_SETFL): %s", sockfd, my_strerror(errno));
+        exit(errno);
+    }
+}
+
+static inline void set_ipv6_only(int sockfd) {
+    if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_V6ONLY, &(int){1}, sizeof(int)) < 0) {
+        LOGERR("[set_ipv6_only] setsockopt(%d, IPV6_V6ONLY): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_reuse_addr(int sockfd) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)) < 0) {
+        LOGERR("[set_reuse_addr] setsockopt(%d, SO_REUSEADDR): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_reuse_port(int sockfd) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEPORT, &(int){1}, sizeof(int)) < 0) {
+        LOGERR("[set_reuse_port] setsockopt(%d, SO_REUSEPORT): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_tcp_nodelay(int sockfd) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_NODELAY, &(int){1}, sizeof(int)) < 0) {
+        LOGERR("[set_tcp_nodelay] setsockopt(%d, TCP_NODELAY): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_tcp_quickack(int sockfd) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_QUICKACK, &(int){1}, sizeof(int)) < 0) {
+        LOGERR("[set_tcp_quickack] setsockopt(%d, TCP_QUICKACK): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_tfo_accept(int sockfd) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_FASTOPEN, &(int){5}, sizeof(int)) < 0) {
+        LOGERR("[set_tfo_accept] setsockopt(%d, TCP_FASTOPEN): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_tcp_syncnt(int sockfd, int syncnt) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_SYNCNT, &syncnt, sizeof(int)) < 0) {
+        LOGERR("[set_tcp_syncnt] setsockopt(%d, TCP_SYNCNT): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline void set_ip_transparent(int family, int sockfd) {
+    if (family == AF_INET) {
+        if (setsockopt(sockfd, IPPROTO_IP, IP_TRANSPARENT, &(int){1}, sizeof(int)) < 0) {
+            LOGERR("[set_ip_transparent] setsockopt(%d, IP_TRANSPARENT): %s", sockfd, my_strerror(errno));
+            exit(errno);
+        }
+    } else {
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_TRANSPARENT, &(int){1}, sizeof(int)) < 0) {
+            LOGERR("[set_ip_transparent] setsockopt(%d, IPV6_TRANSPARENT): %s", sockfd, my_strerror(errno));
+            exit(errno);
+        }
+    }
+}
+
+static inline void set_recv_origdstaddr(int family, int sockfd) {
+    if (family == AF_INET) {
+        if (setsockopt(sockfd, IPPROTO_IP, IP_RECVORIGDSTADDR, &(int){1}, sizeof(int)) < 0) {
+            LOGERR("[set_recv_origdstaddr] setsockopt(%d, IP_RECVORIGDSTADDR): %s", sockfd, my_strerror(errno));
+            exit(errno);
+        }
+    } else {
+        if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR, &(int){1}, sizeof(int)) < 0) {
+            LOGERR("[set_recv_origdstaddr] setsockopt(%d, IPV6_RECVORIGDSTADDR): %s", sockfd, my_strerror(errno));
+            exit(errno);
+        }
+    }
+}
+
+static inline void setup_accepted_sockfd(int sockfd) {
+    set_non_block(sockfd);
+    set_tcp_nodelay(sockfd);
+    set_tcp_quickack(sockfd);
+}
+
+static inline void send_reset_to_peer(int sockfd) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_LINGER, &(struct linger){.l_onoff = 1, .l_linger = 0}, sizeof(struct linger)) < 0) {
+        LOGERR("[send_reset_to_peer] setsockopt(%d, SO_LINGER): %s", sockfd, my_strerror(errno));
+    }
+}
+
+static inline int new_nonblock_sockfd(int family, int sktype) {
+    int sockfd = socket(family, sktype, 0);
+    if (sockfd < 0) {
+        LOGERR("[new_nonblock_sockfd] socket(%s, %s): %s", family == AF_INET ? "AF_INET" : "AF_INET6", sktype == SOCK_STREAM ? "SOCK_STREAM" : "SOCK_DGRAM", my_strerror(errno));
+        exit(errno);
+    }
+    set_non_block(sockfd);
+    if (family == AF_INET6) set_ipv6_only(sockfd);
+    set_reuse_addr(sockfd);
+    return sockfd;
+}
+
+int new_tcp_listen_sockfd(int family, bool is_tproxy, bool is_reuse_port, bool is_tfo_accept) {
+    int sockfd = new_nonblock_sockfd(family, SOCK_STREAM);
+    if (is_tproxy) set_ip_transparent(family, sockfd);
+    if (is_reuse_port) set_reuse_port(sockfd);
+    if (is_tfo_accept) set_tfo_accept(sockfd);
+    return sockfd;
+}
+
+int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt) {
+    int sockfd = new_nonblock_sockfd(family, SOCK_STREAM);
+    set_tcp_nodelay(sockfd);
+    set_tcp_quickack(sockfd);
+    if (tcp_syncnt) set_tcp_syncnt(sockfd, tcp_syncnt);
+    return sockfd;
+}
+
+int new_udp_tprecv_sockfd(int family) {
+    int sockfd = new_nonblock_sockfd(family, SOCK_DGRAM);
+    set_ip_transparent(family, sockfd);
+    set_recv_origdstaddr(family, sockfd);
+    return sockfd;
+}
+
+int new_udp_tpsend_sockfd(int family) {
+    int sockfd = new_nonblock_sockfd(family, SOCK_DGRAM);
+    set_ip_transparent(family, sockfd);
+    return sockfd;
+}
+
+int new_udp_normal_sockfd(int family) {
+    return new_nonblock_sockfd(family, SOCK_DGRAM);
+}
+
+bool get_tcp_orig_dstaddr(int family, int sockfd, void *dstaddr, bool is_tproxy) {
+    socklen_t addrlen = (family == AF_INET) ? sizeof(skaddr4_t) : sizeof(skaddr6_t);
+    if (is_tproxy) {
+        if (getsockname(sockfd, dstaddr, &addrlen) < 0) {
+            LOGERR("[get_tcp_orig_dstaddr] addr_family:%s, getsockname(%d): %s", (family == AF_INET) ? "inet" : "inet6", sockfd, my_strerror(errno));
+            return false;
+        }
+    } else {
+        if (family == AF_INET) {
+            if (getsockopt(sockfd, IPPROTO_IP, SO_ORIGINAL_DST, dstaddr, &addrlen) < 0) {
+                LOGERR("[get_tcp_orig_dstaddr] getsockopt(%d, SO_ORIGINAL_DST): %s", sockfd, my_strerror(errno));
+                return false;
+            }
+        } else {
+            if (getsockopt(sockfd, IPPROTO_IPV6, IP6T_SO_ORIGINAL_DST, dstaddr, &addrlen) < 0) {
+                LOGERR("[get_tcp_orig_dstaddr] getsockopt(%d, IP6T_SO_ORIGINAL_DST): %s", sockfd, my_strerror(errno));
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool get_udp_orig_dstaddr(int family, struct msghdr *msg, void *dstaddr) {
+    if (family == AF_INET) {
+        for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
+            if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_RECVORIGDSTADDR) {
+                memcpy(dstaddr, CMSG_DATA(cmsg), sizeof(skaddr4_t));
+                return true;
+            }
+        }
+    } else {
+        for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
+            if (cmsg->cmsg_level == IPPROTO_IPV6 && cmsg->cmsg_type == IPV6_RECVORIGDSTADDR) {
+                memcpy(dstaddr, CMSG_DATA(cmsg), sizeof(skaddr6_t));
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool tcp_accept(int sockfd, int *conn_sockfd, void *from_skaddr) {
+    *conn_sockfd = accept(sockfd, from_skaddr, from_skaddr ? &(socklen_t){sizeof(skaddr6_t)} : NULL);
+    if (*conn_sockfd < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return false;
+    if (*conn_sockfd >= 0) setup_accepted_sockfd(*conn_sockfd);
+    return true;
+}
+
+bool tcp_connect(int sockfd, const void *skaddr, const void *data, size_t datalen, ssize_t *nsend) {
+    socklen_t skaddrlen = ((skaddr4_t *)skaddr)->sin_family == AF_INET ? sizeof(skaddr4_t) : sizeof(skaddr6_t);
+    if (data && datalen && nsend) {
+        if ((*nsend = sendto(sockfd, data, datalen, MSG_FASTOPEN, skaddr, skaddrlen)) < 0 && errno != EINPROGRESS) return false;
+    } else {
+        if (connect(sockfd, skaddr, skaddrlen) < 0 && errno != EINPROGRESS) return false;
+    }
+    return true;
+}
+
+bool tcp_has_error(int sockfd) {
+    return getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &errno, &(socklen_t){sizeof(errno)}) < 0 || errno;
+}
+
+bool tcp_recv_data(int sockfd, void *data, size_t datalen, size_t *nrecv, bool *is_eof) {
+    ssize_t ret = recv(sockfd, data + *nrecv, datalen - *nrecv, 0);
+    if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        return false;
+    } else if (ret == 0) {
+        *is_eof = true;
+    } else if (ret > 0) {
+        *nrecv += ret;
+    }
+    return true;
+}
+
+bool tcp_send_data(int sockfd, const void *data, size_t datalen, size_t *nsend) {
+    ssize_t ret = send(sockfd, data + *nsend, datalen - *nsend, 0);
+    if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        return false;
+    } else if (ret > 0) {
+        *nsend += ret;
+    }
+    return true;
+}
+
+void tcp_close_by_rst(int sockfd) {
+    send_reset_to_peer(sockfd);
+    close(sockfd);
 }

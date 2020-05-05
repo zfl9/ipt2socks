@@ -1,12 +1,14 @@
 CC = gcc
-CFLAGS = -std=c99 -Wall -Wextra -O3 -pthread
-INCLUDES =
-LDFLAGS =
-LIBS = -luv
-SRCS = ipt2socks.c lrucache.c netutils.c
+CFLAGS = -std=c99 -Wall -Wextra -O2 -pthread
+LIBS = -lm
+SRCS = ipt2socks.c logutils.c lrucache.c netutils.c protocol.c
 OBJS = $(SRCS:.c=.o)
 MAIN = ipt2socks
 DESTDIR = /usr/local/bin
+
+EVCFLAGS = -w -O2
+EVSRCFILE = libev/ev.c
+EVOBJFILE = ev.o
 
 .PHONY: all install clean
 
@@ -19,8 +21,11 @@ install: $(MAIN)
 clean:
 	$(RM) *.o $(MAIN)
 
-$(MAIN): $(OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -s -o $(MAIN) $(OBJS) $(LDFLAGS) $(LIBS)
+$(MAIN): $(EVOBJFILE) $(OBJS)
+	$(CC) $(CFLAGS) -s -o $(MAIN) $(OBJS) $(EVOBJFILE) $(LIBS)
 
 .c.o:
-	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(EVOBJFILE): $(EVSRCFILE)
+	$(CC) $(EVCFLAGS) -c $(EVSRCFILE) -o $(EVOBJFILE)
