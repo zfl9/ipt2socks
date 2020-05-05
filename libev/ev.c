@@ -4339,7 +4339,7 @@ ev_io_start (EV_P_ ev_io *w) EV_NOEXCEPT
     return;
 
   assert (("libev: ev_io_start called with negative fd", fd >= 0));
-  assert (("libev: ev_io_start called with illegal event mask", !(w->events & ~(EV__IOFDSET | EV_READ | EV_WRITE))));
+  assert (("libev: ev_io_start called with illegal event mask", !(w->events & ~(EV__IOFDSET | EV_READ | EV_WRITE | EV_CUSTOM))));
 
 #if EV_VERIFY >= 2
   assert (("libev: ev_io_start called on watcher with invalid fd", fd_valid (fd)));
