@@ -67,7 +67,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - `-o`选项：UDP 上下文的超时时间，默认为 180 秒。
 - `-j`选项：需要启动的工作线程数量，默认为单个线程。
 - `-n`选项：设置 ipt2socks 进程可打开的文件描述符限制。
-- `-u`选项：即 run-as-user 功能，需要 root 权限才生效。
+- `-u`选项：即 run-as-user 功能，需要 root 权限才能生效。
 - `-T`选项：仅启用 TCP 透明代理，也即关闭 UDP 透明代理。
 - `-U`选项：仅启用 UDP 透明代理，也即关闭 TCP 透明代理。
 - `-4`选项：仅启用 IPv4 透明代理，也即关闭 IPv6 透明代理。
