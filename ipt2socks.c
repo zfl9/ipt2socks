@@ -505,10 +505,12 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
         return;
     }
 
-    if (tfo_nsend >= 0) {
-        IF_VERBOSE LOGINF("[tcp_tproxy_accept_cb] tfo connect to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
-    } else {
-        IF_VERBOSE LOGINF("[tcp_tproxy_accept_cb] try to connect to %s#%hu ...", g_server_ipstr, g_server_portno);
+    IF_VERBOSE {
+        if (tfo_nsend >= 0) {
+            LOGINF("[tcp_tproxy_accept_cb] tfo send to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
+        } else {
+            LOGINF("[tcp_tproxy_accept_cb] try to connect to %s#%hu ...", g_server_ipstr, g_server_portno);
+        }
     }
 
     tcp_context_t *context = malloc(sizeof(*context));
@@ -820,10 +822,12 @@ static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *tprecv_watcher, int 
             close(tcp_sockfd);
             return;
         }
-        if (tfo_nsend >= 0) {
-            IF_VERBOSE LOGINF("[udp_tproxy_recvmsg_cb] tfo connect to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
-        } else {
-            IF_VERBOSE LOGINF("[udp_tproxy_recvmsg_cb] try to connect to %s#%hu ...", g_server_ipstr, g_server_portno);
+        IF_VERBOSE {
+            if (tfo_nsend >= 0) {
+                LOGINF("[udp_tproxy_recvmsg_cb] tfo send to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
+            } else {
+                LOGINF("[udp_tproxy_recvmsg_cb] try to connect to %s#%hu ...", g_server_ipstr, g_server_portno);
+            }
         }
 
         context = malloc(sizeof(*context));
