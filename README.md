@@ -37,8 +37,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -l, --listen-port <port>           listen port number, default: 60080
  -f, --buffer-size <size>           tcp socket recv bufsize, default: 8192
  -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits
- -c, --cache-size <size>            udp context cache maxsize, default: 256
- -o, --udp-timeout <sec>            udp context idle timeout, default: 180
+ -c, --cache-size <size>            udp context cache maxsize, default: 128
+ -o, --udp-timeout <sec>            udp context idle timeout, default: 30
  -j, --thread-nums <num>            number of the worker threads, default: 1
  -n, --nofile-limit <num>           set nofile limit, may need root privilege
  -u, --run-user <user>              run as the given user, need root privilege
