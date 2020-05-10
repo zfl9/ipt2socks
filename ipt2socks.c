@@ -26,7 +26,7 @@
 
 #define IF_VERBOSE if (g_verbose)
 
-#define IPT2SOCKS_VERSION "ipt2socks v1.1.0 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.1.1 <https://github.com/zfl9/ipt2socks>"
 
 enum {
     OPT_ENABLE_TCP         = 0x01 << 0, // enable tcp proxy
@@ -472,12 +472,13 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     bool isipv4 = accept_watcher->data;
     skaddr6_t skaddr; char ipstr[IP6STRLEN]; portno_t portno;
 
-    int client_sockfd = -1;
-    if (!tcp_accept(accept_watcher->fd, &client_sockfd, &skaddr)) {
-        LOGERR("[tcp_tproxy_accept_cb] accept tcp%s socket: %s", isipv4 ? "4" : "6", my_strerror(errno));
+    int client_sockfd = tcp_accept(accept_watcher->fd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
+    if (client_sockfd < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[tcp_tproxy_accept_cb] accept tcp%s socket: %s", isipv4 ? "4" : "6", my_strerror(errno));
+        }
         return;
     }
-    if (client_sockfd < 0) return;
     IF_VERBOSE {
         parse_socket_addr(&skaddr, ipstr, &portno);
         LOGINF("[tcp_tproxy_accept_cb] source socket address: %s#%hu", ipstr, portno);
@@ -493,7 +494,6 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     }
 
     int socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
-
     const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? &g_socks5_auth_request : NULL;
     uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? sizeof(socks5_authreq_t) : 0;
     ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
@@ -504,7 +504,6 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
         close(socks5_sockfd);
         return;
     }
-
     IF_VERBOSE {
         if (tfo_nsend >= 0) {
             LOGINF("[tcp_tproxy_accept_cb] tfo send to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
@@ -578,15 +577,16 @@ static void tcp_socks5_connect_cb(evloop_t *evloop, evio_t *socks5_watcher, int 
 /* return true if the request has been completely sent */
 static bool tcp_socks5_send_request(const char *funcname, evloop_t *evloop, evio_t *socks5_watcher, const void *data, size_t datalen) {
     tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
-    size_t cur_nsend = context->socks5_nsend;
-    if (!tcp_send_data(socks5_watcher->fd, data, datalen, &cur_nsend)) {
-        LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
-        tcp_context_release(evloop, context, true);
+    ssize_t nsend = send(socks5_watcher->fd, data + context->socks5_nsend, datalen - context->socks5_nsend, 0);
+    if (nsend < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            tcp_context_release(evloop, context, true);
+        }
         return false;
     }
-    if (context->socks5_nsend == cur_nsend) return false; // EAGAIN
-    IF_VERBOSE LOGINF("[%s] send to %s#%hu, nsend:%zu", funcname, g_server_ipstr, g_server_portno, cur_nsend - context->socks5_nsend);
-    context->socks5_nsend = cur_nsend;
+    IF_VERBOSE LOGINF("[%s] send to %s#%hu, nsend:%zd", funcname, g_server_ipstr, g_server_portno, nsend);
+    context->socks5_nsend += (size_t)nsend;
     if (context->socks5_nsend >= datalen) {
         context->socks5_nsend = 0;
         return true;
@@ -597,20 +597,21 @@ static bool tcp_socks5_send_request(const char *funcname, evloop_t *evloop, evio
 /* return true if the response has been completely received */
 static bool tcp_socks5_recv_response(const char *funcname, evloop_t *evloop, evio_t *socks5_watcher, void *data, size_t datalen) {
     tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
-    size_t cur_nrecv = context->socks5_nrecv; bool is_eof = false;
-    if (!tcp_recv_data(socks5_watcher->fd, data, datalen, &cur_nrecv, &is_eof)) {
-        LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
-        tcp_context_release(evloop, context, true);
+    ssize_t nrecv = recv(socks5_watcher->fd, data + context->socks5_nrecv, datalen - context->socks5_nrecv, 0);
+    if (nrecv < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            tcp_context_release(evloop, context, true);
+        }
         return false;
     }
-    if (is_eof) {
+    if (nrecv == 0) {
         LOGERR("[%s] recv from %s#%hu: connection is closed", funcname, g_server_ipstr, g_server_portno);
         tcp_context_release(evloop, context, true);
         return false;
     }
-    if (context->socks5_nrecv == cur_nrecv) return false; // EAGAIN
-    IF_VERBOSE LOGINF("[%s] recv from %s#%hu, nrecv:%zu", funcname, g_server_ipstr, g_server_portno, cur_nrecv - context->socks5_nrecv);
-    context->socks5_nrecv = cur_nrecv;
+    IF_VERBOSE LOGINF("[%s] recv from %s#%hu, nrecv:%zd", funcname, g_server_ipstr, g_server_portno, nrecv);
+    context->socks5_nrecv += (size_t)nrecv;
     if (context->socks5_nrecv >= datalen) {
         context->socks5_nrecv = 0;
         return true;
@@ -666,19 +667,28 @@ static void tcp_socks5_send_proxyreq_cb(evloop_t *evloop, evio_t *socks5_watcher
         ev_io_stop(evloop, socks5_watcher);
         ev_io_init(socks5_watcher, tcp_socks5_recv_proxyresp_cb, socks5_watcher->fd, EV_READ);
         ev_io_start(evloop, socks5_watcher);
+        context->client_nrecv = 0;
+        context->socks5_nsend = sizeof(socks5_ipv4resp_t);
     }
 }
 
 static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *socks5_watcher, int revents __attribute__((unused))) {
     tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
-    if (!tcp_socks5_recv_response("tcp_socks5_recv_proxyresp_cb", evloop, socks5_watcher, socks5_watcher->data, context->client_nrecv)) {
+    if (!tcp_socks5_recv_response("tcp_socks5_recv_proxyresp_cb", evloop, socks5_watcher, socks5_watcher->data, context->socks5_nsend)) {
         return;
     }
-    if (!socks5_proxy_response_check("tcp_socks5_recv_proxyresp_cb", socks5_watcher->data, context->client_nrecv == sizeof(socks5_ipv4resp_t))) {
-        tcp_context_release(evloop, context, true);
-        return;
+    if (context->socks5_nsend == sizeof(socks5_ipv4resp_t)) {
+        if (!socks5_proxy_response_check("tcp_socks5_recv_proxyresp_cb", socks5_watcher->data)) {
+            tcp_context_release(evloop, context, true);
+            return;
+        }
+        if (((socks5_ipv4resp_t *)socks5_watcher->data)->addrtype == SOCKS5_ADDRTYPE_IPV6) {
+            context->socks5_nsend = sizeof(socks5_ipv6resp_t);
+            context->socks5_nrecv = sizeof(socks5_ipv4resp_t);
+            return;
+        }
     }
-    context->client_nrecv = 0;
+    context->socks5_nsend = 0;
     ev_io_start(evloop, &context->client_watcher);
     ev_set_cb(socks5_watcher, tcp_stream_payload_forward_cb);
     IF_VERBOSE LOGINF("[tcp_socks5_recv_proxyresp_cb] tunnel is ready, start forwarding ...");
@@ -690,29 +700,33 @@ static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher
     evio_t *peer_watcher = self_is_client ? &context->socks5_watcher : &context->client_watcher;
 
     if (revents & EV_READ) {
-        size_t nrecv = 0;
-        bool is_eof = false;
-        if (!tcp_recv_data(self_watcher->fd, self_watcher->data, g_tcp_buffer_size, &nrecv, &is_eof)) {
-            LOGERR("[tcp_stream_payload_forward_cb] recv from %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
-            tcp_context_release(evloop, context, true);
-            return;
+        ssize_t nrecv = recv(self_watcher->fd, self_watcher->data, g_tcp_buffer_size, 0);
+        if (nrecv < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                LOGERR("[tcp_stream_payload_forward_cb] recv from %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
+                tcp_context_release(evloop, context, true);
+                return;
+            }
+            goto DO_WRITE;
         }
-        if (is_eof) {
+        if (nrecv == 0) {
             IF_VERBOSE LOGINF("[tcp_stream_payload_forward_cb] recv FIN from %s stream, release ctx", self_is_client ? "client" : "socks5");
             tcp_context_release(evloop, context, false);
             return;
         }
-        if (nrecv == 0) goto DO_WRITE; // EAGAIN
 
-        size_t nsend = 0;
-        if (!tcp_send_data(peer_watcher->fd, self_watcher->data, nrecv, &nsend)) {
-            LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "socks5" : "client", my_strerror(errno));
-            tcp_context_release(evloop, context, true);
-            return;
+        ssize_t nsend = send(peer_watcher->fd, self_watcher->data, nrecv, 0);
+        if (nsend < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "socks5" : "client", my_strerror(errno));
+                tcp_context_release(evloop, context, true);
+                return;
+            }
+            nsend = 0;
         }
         if (nsend < nrecv) {
-            *(self_is_client ? &context->client_nrecv : &context->socks5_nrecv) = nrecv;
-            *(self_is_client ? &context->socks5_nsend : &context->client_nsend) = nsend;
+            *(self_is_client ? &context->client_nrecv : &context->socks5_nrecv) = (size_t)nrecv;
+            *(self_is_client ? &context->socks5_nsend : &context->client_nsend) = (size_t)nsend;
 
             ev_io_stop(evloop, self_watcher);
             ev_io_modify(self_watcher, self_watcher->events & ~EV_READ);
@@ -726,14 +740,19 @@ static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher
 
 DO_WRITE:
     if (revents & EV_WRITE) {
-        size_t nsend = self_is_client ? context->client_nsend : context->socks5_nsend;
-        size_t nrecv = self_is_client ? context->socks5_nrecv : context->client_nrecv;
+        uint16_t nsend = self_is_client ? context->client_nsend : context->socks5_nsend;
+        uint16_t nrecv = self_is_client ? context->socks5_nrecv : context->client_nrecv;
 
-        if (!tcp_send_data(self_watcher->fd, peer_watcher->data, nrecv, &nsend)) {
-            LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
-            tcp_context_release(evloop, context, true);
-            return;
+        ssize_t n = send(self_watcher->fd, peer_watcher->data + nsend, nrecv - nsend, 0);
+        if (n < 0) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
+                tcp_context_release(evloop, context, true);
+                return;
+            }
+            n = 0;
         }
+        nsend += (size_t)n;
 
         if (nsend >= nrecv) {
             *(self_is_client ? &context->client_nsend : &context->socks5_nsend) = 0;
@@ -896,18 +915,19 @@ static void udp_socks5_connect_cb(evloop_t *evloop, evio_t *tcp_watcher, int rev
 
 /* return true if the request has been completely sent */
 static bool udp_socks5_send_request(const char *funcname, evloop_t *evloop, evio_t *tcp_watcher, const void *data, size_t datalen) {
-    uint16_t *nsend_ptr = tcp_watcher->data;
-    size_t cur_nsend = *nsend_ptr;
-    if (!tcp_send_data(tcp_watcher->fd, data, datalen, &cur_nsend)) {
-        LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
-        udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
+    uint16_t *nsend = tcp_watcher->data;
+    ssize_t n = send(tcp_watcher->fd, data + *nsend, datalen - *nsend, 0);
+    if (n < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
+        }
         return false;
     }
-    if (*nsend_ptr == cur_nsend) return false; // EAGAIN
-    IF_VERBOSE LOGINF("[%s] send to %s#%hu, nsend:%zu", funcname, g_server_ipstr, g_server_portno, cur_nsend - *nsend_ptr);
-    *nsend_ptr = cur_nsend;
-    if (*nsend_ptr >= datalen) {
-        *nsend_ptr = 0;
+    IF_VERBOSE LOGINF("[%s] send to %s#%hu, nsend:%zd", funcname, g_server_ipstr, g_server_portno, n);
+    *nsend += (size_t)n;
+    if (*nsend >= datalen) {
+        *nsend = 0;
         return true;
     }
     return false;
@@ -915,23 +935,24 @@ static bool udp_socks5_send_request(const char *funcname, evloop_t *evloop, evio
 
 /* return true if the response has been completely received */
 static bool udp_socks5_recv_response(const char *funcname, evloop_t *evloop, evio_t *tcp_watcher, void *data, size_t datalen) {
-    uint16_t *nrecv_ptr = tcp_watcher->data;
-    size_t cur_nrecv = *nrecv_ptr; bool is_eof = false;
-    if (!tcp_recv_data(tcp_watcher->fd, data, datalen, &cur_nrecv, &is_eof)) {
-        LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
-        udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
+    uint16_t *nrecv = tcp_watcher->data;
+    ssize_t n = recv(tcp_watcher->fd, data + *nrecv, datalen - *nrecv, 0);
+    if (n < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
+        }
         return false;
     }
-    if (is_eof) {
+    if (n == 0) {
         LOGERR("[%s] recv from %s#%hu: connection is closed", funcname, g_server_ipstr, g_server_portno);
         udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
         return false;
     }
-    if (*nrecv_ptr == cur_nrecv) return false; // EAGAIN
-    IF_VERBOSE LOGINF("[%s] recv from %s#%hu, nrecv:%zu", funcname, g_server_ipstr, g_server_portno, cur_nrecv - *nrecv_ptr);
-    *nrecv_ptr = cur_nrecv;
-    if (*nrecv_ptr >= datalen) {
-        *nrecv_ptr = 0;
+    IF_VERBOSE LOGINF("[%s] recv from %s#%hu, nrecv:%zd", funcname, g_server_ipstr, g_server_portno, n);
+    *nrecv += (size_t)n;
+    if (*nrecv >= datalen) {
+        *nrecv = 0;
         return true;
     }
     return false;
@@ -988,23 +1009,31 @@ static void udp_socks5_send_proxyreq_cb(evloop_t *evloop, evio_t *tcp_watcher, i
         ev_io_stop(evloop, tcp_watcher);
         ev_io_init(tcp_watcher, udp_socks5_recv_proxyresp_cb, tcp_watcher->fd, EV_READ);
         ev_io_start(evloop, tcp_watcher);
+        *(uint16_t *)context->udp_watcher.data = sizeof(socks5_ipv4resp_t);
     }
 }
 
 static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, int revents __attribute__((unused))) {
     udp_socks5ctx_t *context = get_udpsk5ctx_by_tcp(tcp_watcher);
-    bool isipv4 = ((socks5_udp4msg_t *)(context->udp_watcher.data + 2))->addrtype == SOCKS5_ADDRTYPE_IPV4;
-    uint16_t responselen = isipv4 ? sizeof(socks5_ipv4resp_t) : sizeof(socks5_ipv6resp_t);
-    if (!udp_socks5_recv_response("udp_socks5_recv_proxyresp_cb", evloop, tcp_watcher, tcp_watcher->data + 2, responselen)) {
+    uint16_t *responselen = context->udp_watcher.data;
+    if (!udp_socks5_recv_response("udp_socks5_recv_proxyresp_cb", evloop, tcp_watcher, tcp_watcher->data + 2, *responselen)) {
         return;
     }
-    if (!socks5_proxy_response_check("udp_socks5_recv_proxyresp_cb", tcp_watcher->data + 2, isipv4)) {
-        udp_socks5ctx_release(evloop, context);
-        return;
+    if (*responselen == sizeof(socks5_ipv4resp_t)) {
+        if (!socks5_proxy_response_check("udp_socks5_recv_proxyresp_cb", tcp_watcher->data + 2)) {
+            udp_socks5ctx_release(evloop, context);
+            return;
+        }
+        if (((socks5_ipv4resp_t *)(tcp_watcher->data + 2))->addrtype == SOCKS5_ADDRTYPE_IPV6) {
+            *responselen = sizeof(socks5_ipv6resp_t);
+            *(uint16_t *)tcp_watcher->data = sizeof(socks5_ipv4resp_t);
+            return;
+        }
     }
+    bool tunisipv4 = *responselen == sizeof(socks5_ipv4resp_t);
 
     skaddr6_t tunskaddr = {0};
-    if (isipv4) {
+    if (tunisipv4) {
         socks5_ipv4resp_t *response = tcp_watcher->data + 2;
         skaddr4_t *addr = (void *)&tunskaddr;
         addr->sin_family = AF_INET;
@@ -1017,9 +1046,9 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
         tunskaddr.sin6_port = response->portnum;
     }
 
-    int udp_sockfd = new_udp_normal_sockfd(isipv4 ? AF_INET : AF_INET6);
-    if (connect(udp_sockfd, (void *)&tunskaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
-        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", isipv4 ? "4" : "6", my_strerror(errno));
+    int udp_sockfd = new_udp_normal_sockfd(tunisipv4 ? AF_INET : AF_INET6);
+    if (connect(udp_sockfd, (void *)&tunskaddr, tunisipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
+        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", tunisipv4 ? "4" : "6", my_strerror(errno));
         udp_socks5ctx_release(evloop, context);
         close(udp_sockfd);
         return;
@@ -1028,7 +1057,7 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
     ssize_t nsend = send(udp_sockfd, context->udp_watcher.data + 2, *(uint16_t *)context->udp_watcher.data, 0);
     if (nsend < 0 || g_verbose) {
         char ipstr[IP6STRLEN]; portno_t portno;
-        if (isipv4) {
+        if (((socks5_udp4msg_t *)(context->udp_watcher.data + 2))->addrtype == SOCKS5_ADDRTYPE_IPV4) {
             socks5_udp4msg_t *udp4msg = context->udp_watcher.data + 2;
             inet_ntop(AF_INET, &udp4msg->ipaddr4, ipstr, IP6STRLEN);
             portno = ntohs(udp4msg->portnum);
