@@ -111,17 +111,13 @@ bool socks5_usrpwd_response_check(const char *funcname, const socks5_usrpwdresp_
     return true;
 }
 
-bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response, bool isipv4) {
+bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response) {
     if (response->version != SOCKS5_VERSION) {
         LOGERR("[%s] response->version:%#hhx is not SOCKS5:%#hhx", funcname, response->version, SOCKS5_VERSION);
         return false;
     }
     if (response->respcode != SOCKS5_RESPCODE_SUCCEEDED) {
         LOGERR("[%s] response->respcode:%#hhx(%s) is not SUCCEEDED:%#hhx", funcname, response->respcode, socks5_rcode2string(response->respcode), SOCKS5_RESPCODE_SUCCEEDED);
-        return false;
-    }
-    if (response->addrtype != (isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6)) {
-        LOGERR("[%s] response->addrtype:%#hhx is not ADDRTYPE_IPV%s:%#hhx", funcname, response->addrtype, isipv4 ? "4" : "6", isipv4 ? SOCKS5_ADDRTYPE_IPV4 : SOCKS5_ADDRTYPE_IPV6);
         return false;
     }
     return true;
