@@ -140,6 +140,6 @@ void socks5_proxy_request_make(socks5_ipv4req_t *request, const void *skaddr);
 
 bool socks5_auth_response_check(const char *funcname, const socks5_authresp_t *response);
 bool socks5_usrpwd_response_check(const char *funcname, const socks5_usrpwdresp_t *response);
-bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response, bool isipv4);
+bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response);
 
 #endif
