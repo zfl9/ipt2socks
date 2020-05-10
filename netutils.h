@@ -59,12 +59,16 @@ int new_udp_normal_sockfd(int family);
 bool get_tcp_orig_dstaddr(int family, int sockfd, void *dstaddr, bool is_tproxy);
 bool get_udp_orig_dstaddr(int family, struct msghdr *msg, void *dstaddr);
 
-/* false if error (errno is set); true if EAGAIN or succeed */
-bool tcp_accept(int sockfd, int *conn_sockfd, void *from_skaddr);
-bool tcp_connect(int sockfd, const void *skaddr, const void *data, size_t datalen, ssize_t *nsend);
-bool tcp_has_error(int sockfd); /* getsockopt(SO_ERROR), save to errno */
-bool tcp_recv_data(int sockfd, void *data, size_t datalen, size_t *nrecv, bool *is_eof);
-bool tcp_send_data(int sockfd, const void *data, size_t datalen, size_t *nsend);
+/* same as `accept()`, just a simple wrapper */
+int tcp_accept(int sockfd, void *addr, socklen_t *addrlen);
+
+/* return: is_succ, tfo_succ if tfo_nsend >= 0 */
+bool tcp_connect(int sockfd, const void *addr, const void *tfo_data, size_t tfo_datalen, ssize_t *tfo_nsend);
+
+/* on connect error, errno is set appropriately */
+bool tcp_has_error(int sockfd);
+
+/* set so_linger(delay=0) and call close(sockfd) */
 void tcp_close_by_rst(int sockfd);
 
 #endif

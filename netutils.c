@@ -320,49 +320,30 @@ bool get_udp_orig_dstaddr(int family, struct msghdr *msg, void *dstaddr) {
     return false;
 }
 
-bool tcp_accept(int sockfd, int *conn_sockfd, void *from_skaddr) {
-    *conn_sockfd = accept(sockfd, from_skaddr, from_skaddr ? &(socklen_t){sizeof(skaddr6_t)} : NULL);
-    if (*conn_sockfd < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return false;
-    if (*conn_sockfd >= 0) setup_accepted_sockfd(*conn_sockfd);
-    return true;
+/* same as `accept()`, just a simple wrapper */
+int tcp_accept(int sockfd, void *addr, socklen_t *addrlen) {
+    int newsockfd = accept(sockfd, addr, addrlen);
+    if (newsockfd >= 0) setup_accepted_sockfd(newsockfd);
+    return newsockfd;
 }
 
-bool tcp_connect(int sockfd, const void *skaddr, const void *data, size_t datalen, ssize_t *nsend) {
-    socklen_t skaddrlen = ((skaddr4_t *)skaddr)->sin_family == AF_INET ? sizeof(skaddr4_t) : sizeof(skaddr6_t);
-    if (data && datalen && nsend) {
-        if ((*nsend = sendto(sockfd, data, datalen, MSG_FASTOPEN, skaddr, skaddrlen)) < 0 && errno != EINPROGRESS) return false;
+/* return: is_succ, tfo_succ if tfo_nsend >= 0 */
+bool tcp_connect(int sockfd, const void *addr, const void *tfo_data, size_t tfo_datalen, ssize_t *tfo_nsend) {
+    socklen_t addrlen = ((skaddr4_t *)addr)->sin_family == AF_INET ? sizeof(skaddr4_t) : sizeof(skaddr6_t);
+    if (tfo_data && tfo_datalen && tfo_nsend) {
+        if ((*tfo_nsend = sendto(sockfd, tfo_data, tfo_datalen, MSG_FASTOPEN, addr, addrlen)) < 0 && errno != EINPROGRESS) return false;
     } else {
-        if (connect(sockfd, skaddr, skaddrlen) < 0 && errno != EINPROGRESS) return false;
+        if (connect(sockfd, addr, addrlen) < 0 && errno != EINPROGRESS) return false;
     }
     return true;
 }
 
+/* on connect error, errno is set appropriately */
 bool tcp_has_error(int sockfd) {
     return getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &errno, &(socklen_t){sizeof(errno)}) < 0 || errno;
 }
 
-bool tcp_recv_data(int sockfd, void *data, size_t datalen, size_t *nrecv, bool *is_eof) {
-    ssize_t ret = recv(sockfd, data + *nrecv, datalen - *nrecv, 0);
-    if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        return false;
-    } else if (ret == 0) {
-        *is_eof = true;
-    } else if (ret > 0) {
-        *nrecv += ret;
-    }
-    return true;
-}
-
-bool tcp_send_data(int sockfd, const void *data, size_t datalen, size_t *nsend) {
-    ssize_t ret = send(sockfd, data + *nsend, datalen - *nsend, 0);
-    if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) {
-        return false;
-    } else if (ret > 0) {
-        *nsend += ret;
-    }
-    return true;
-}
-
+/* set so_linger(delay=0) and call close(sockfd) */
 void tcp_close_by_rst(int sockfd) {
     send_reset_to_peer(sockfd);
     close(sockfd);
