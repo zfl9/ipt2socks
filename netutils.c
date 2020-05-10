@@ -201,22 +201,22 @@ static inline void set_tcp_solinger0(int sockfd) {
 
 static inline void set_tcp_keepalive(int sockfd) {
     /* enable tcp_keepalive */
-    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int) < 0)) {
+    if (setsockopt(sockfd, SOL_SOCKET, SO_KEEPALIVE, &(int){1}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, SO_KEEPALIVE): %s", sockfd, my_strerror(errno));
         return;
     }
     /* tcp connection idle sec */
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &(int){60}, sizeof(int) < 0)) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPIDLE, &(int){60}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPIDLE): %s", sockfd, my_strerror(errno));
         return;
     }
     /* retry send probe max count */
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &(int){3}, sizeof(int) < 0)) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &(int){3}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPCNT): %s", sockfd, my_strerror(errno));
         return;
     }
     /* retry send probe interval sec */
-    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &(int){5}, sizeof(int) < 0)) {
+    if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &(int){5}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPINTVL): %s", sockfd, my_strerror(errno));
         return;
     }
