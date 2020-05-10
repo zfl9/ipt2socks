@@ -210,12 +210,12 @@ static inline void set_tcp_keepalive(int sockfd) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPIDLE): %s", sockfd, my_strerror(errno));
         return;
     }
-    /* retry send probe max count */
+    /* keepalive probe retry max count */
     if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPCNT, &(int){3}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPCNT): %s", sockfd, my_strerror(errno));
         return;
     }
-    /* retry send probe interval sec */
+    /* keepalive probe retry interval sec */
     if (setsockopt(sockfd, IPPROTO_TCP, TCP_KEEPINTVL, &(int){5}, sizeof(int)) < 0) {
         LOGERR("[set_tcp_keepalive] setsockopt(%d, TCP_KEEPINTVL): %s", sockfd, my_strerror(errno));
         return;
