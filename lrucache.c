@@ -2,7 +2,7 @@
 #include "lrucache.h"
 #undef _GNU_SOURCE
 
-static uint16_t g_lrucache_maxsize = 256;
+static uint16_t g_lrucache_maxsize = 128;
 
 uint16_t lrucache_get_maxsize(void) {
     return g_lrucache_maxsize;

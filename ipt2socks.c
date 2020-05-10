@@ -90,7 +90,7 @@ static skaddr6_t g_server_skaddr           = {0};
 static uint8_t  g_tcp_syncnt_max  = 0; // 0: use default syncnt
 static uint16_t g_tcp_buffer_size = TCP_SKBUFSIZE_DEFAULT; // maxsize: 65535
 
-static uint16_t         g_udp_idletimeout_sec                   = 180;
+static uint16_t         g_udp_idletimeout_sec                   = 30;
 static udp_socks5ctx_t *g_udp_socks5ctx_table                   = NULL;
 static udp_tproxyctx_t *g_udp_tproxyctx_table                   = NULL;
 static char             g_udp_dgram_buffer[UDP_DATAGRAM_MAXSIZ] = {0};
@@ -106,8 +106,8 @@ static void print_command_help(void) {
            " -l, --listen-port <port>           listen port number, default: 60080\n"
            " -f, --buffer-size <size>           tcp socket recv bufsize, default: 8192\n"
            " -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits\n"
-           " -c, --cache-size <size>            udp context cache maxsize, default: 256\n"
-           " -o, --udp-timeout <sec>            udp context idle timeout, default: 180\n"
+           " -c, --cache-size <size>            udp context cache maxsize, default: 128\n"
+           " -o, --udp-timeout <sec>            udp context idle timeout, default: 30\n"
            " -j, --thread-nums <num>            number of the worker threads, default: 1\n"
            " -n, --nofile-limit <num>           set nofile limit, may need root privilege\n"
            " -u, --run-user <user>              run as the given user, need root privilege\n"
