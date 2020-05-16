@@ -22,7 +22,7 @@
 #define IP6STR_WILDCARD "::"
 
 #define UDP_CTRLMESG_BUFSIZ 64
-#define UDP_DATAGRAM_MAXSIZ 1472
+#define UDP_DATAGRAM_MAXSIZ 65507 /* 65535 - iphdr(20) - udphdr(8) */
 
 typedef uint32_t ipaddr4_t;
 typedef uint8_t  ipaddr6_t[16];
@@ -48,6 +48,8 @@ void run_as_user(const char *username, char *argv[]);
 int get_ipstr_family(const char *ipstr);
 void build_socket_addr(int family, void *skaddr, const char *ipstr, portno_t portno);
 void parse_socket_addr(const void *skaddr, char *ipstr, portno_t *portno);
+
+void new_nonblock_pipefd(int pipefd[2]); /* pipefd[0]: read end, pipefd[1]: write end */
 
 int new_tcp_listen_sockfd(int family, bool is_tproxy, bool is_reuse_port, bool is_tfo_accept);
 int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt);
