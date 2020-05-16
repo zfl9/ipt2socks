@@ -36,8 +36,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1
  -l, --listen-port <port>           listen port number, default: 60080
  -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits
- -c, --cache-size <size>            udp context cache maxsize, default: 128
- -o, --udp-timeout <sec>            udp context idle timeout, default: 30
+ -c, --cache-size <size>            udp context cache maxsize, default: 256
+ -o, --udp-timeout <sec>            udp context idle timeout, default: 60
  -j, --thread-nums <num>            number of the worker threads, default: 1
  -n, --nofile-limit <num>           set nofile limit, may need root privilege
  -u, --run-user <user>              run as the given user, need root privilege
@@ -61,8 +61,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - `-B`选项：本地 IPv6 监听地址，默认为 ::1。
 - `-l`选项：本地 IPv4/6 监听端口，默认为 60080。
 - `-S`选项：与 socks5 服务器建立 TCP 连接的超时参数。
-- `-c`选项：UDP 上下文的最大数量，默认为 128 个。
-- `-o`选项：UDP 上下文的超时时间，默认为 30 秒。
+- `-c`选项：UDP 上下文的最大数量，默认为 256 个。
+- `-o`选项：UDP 上下文的超时时间，默认为 60 秒。
 - `-j`选项：需要启动的工作线程数量，默认为单个线程。
 - `-n`选项：设置 ipt2socks 进程可打开的文件描述符限制。
 - `-u`选项：即 run-as-user 功能，需要 root 权限才能生效。
