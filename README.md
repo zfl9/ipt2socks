@@ -35,7 +35,6 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -b, --listen-addr4 <addr>          listen ipv4 address, default: 127.0.0.1
  -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1
  -l, --listen-port <port>           listen port number, default: 60080
- -f, --buffer-size <size>           tcp socket recv bufsize, default: 8192
  -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits
  -c, --cache-size <size>            udp context cache maxsize, default: 128
  -o, --udp-timeout <sec>            udp context idle timeout, default: 30
@@ -61,7 +60,6 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - `-b`选项：本地 IPv4 监听地址，默认为 127.0.0.1。
 - `-B`选项：本地 IPv6 监听地址，默认为 ::1。
 - `-l`选项：本地 IPv4/6 监听端口，默认为 60080。
-- `-f`选项：TCP 套接字的缓冲区大小，默认为 8192 字节。
 - `-S`选项：与 socks5 服务器建立 TCP 连接的超时参数。
 - `-c`选项：UDP 上下文的最大数量，默认为 128 个。
 - `-o`选项：UDP 上下文的超时时间，默认为 30 秒。
