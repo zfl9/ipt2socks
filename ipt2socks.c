@@ -28,6 +28,20 @@
 
 #define IPT2SOCKS_VERSION "ipt2socks v1.1.2 <https://github.com/zfl9/ipt2socks>"
 
+#ifndef SPLICE_F_MOVE
+  #include <sys/syscall.h>
+
+  #undef  SPLICE_F_MOVE
+  #define SPLICE_F_MOVE 1
+
+  #undef  SPLICE_F_NONBLOCK
+  #define SPLICE_F_NONBLOCK 2
+
+  ssize_t splice(int fdin, __off64_t *offin, int fdout, __off64_t *offout, size_t len, unsigned int flags) {
+      return syscall(__NR_splice, fdin, offin, fdout, offout, len, flags);
+  }
+#endif
+
 enum {
     OPT_ENABLE_TCP         = 0x01 << 0, // enable tcp proxy
     OPT_ENABLE_UDP         = 0x01 << 1, // enable udp proxy
