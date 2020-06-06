@@ -26,7 +26,7 @@
 
 #define TCP_SPLICE_MAXLEN 65535 /* uint16_t: 0~65535 */
 
-#define IPT2SOCKS_VERSION "ipt2socks v1.1.2 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.1.3 <https://github.com/zfl9/ipt2socks>"
 
 #ifndef SPLICE_F_MOVE
   #include <sys/syscall.h>

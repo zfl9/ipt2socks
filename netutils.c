@@ -143,11 +143,11 @@ static inline void set_non_block(int sockfd) {
     int flags = fcntl(sockfd, F_GETFL, 0);
     if (flags < 0) {
         LOGERR("[set_non_block] fcntl(%d, F_GETFL): %s", sockfd, my_strerror(errno));
-        exit(errno);
+        return;
     }
     if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         LOGERR("[set_non_block] fcntl(%d, F_SETFL): %s", sockfd, my_strerror(errno));
-        exit(errno);
+        return;
     }
 }
 
@@ -226,12 +226,12 @@ static inline void set_ip_transparent(int family, int sockfd) {
     if (family == AF_INET) {
         if (setsockopt(sockfd, IPPROTO_IP, IP_TRANSPARENT, &(int){1}, sizeof(int)) < 0) {
             LOGERR("[set_ip_transparent] setsockopt(%d, IP_TRANSPARENT): %s", sockfd, my_strerror(errno));
-            exit(errno);
+            return;
         }
     } else {
         if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_TRANSPARENT, &(int){1}, sizeof(int)) < 0) {
             LOGERR("[set_ip_transparent] setsockopt(%d, IPV6_TRANSPARENT): %s", sockfd, my_strerror(errno));
-            exit(errno);
+            return;
         }
     }
 }
@@ -240,12 +240,12 @@ static inline void set_recv_origdstaddr(int family, int sockfd) {
     if (family == AF_INET) {
         if (setsockopt(sockfd, IPPROTO_IP, IP_RECVORIGDSTADDR, &(int){1}, sizeof(int)) < 0) {
             LOGERR("[set_recv_origdstaddr] setsockopt(%d, IP_RECVORIGDSTADDR): %s", sockfd, my_strerror(errno));
-            exit(errno);
+            return;
         }
     } else {
         if (setsockopt(sockfd, IPPROTO_IPV6, IPV6_RECVORIGDSTADDR, &(int){1}, sizeof(int)) < 0) {
             LOGERR("[set_recv_origdstaddr] setsockopt(%d, IPV6_RECVORIGDSTADDR): %s", sockfd, my_strerror(errno));
-            exit(errno);
+            return;
         }
     }
 }
@@ -260,7 +260,8 @@ static inline void setup_accepted_sockfd(int sockfd) {
 void new_nonblock_pipefd(int pipefd[2]) {
     if (pipe(pipefd) < 0) {
         LOGERR("[new_nonblock_pipefd] pipe(%p): %s", (void *)pipefd, my_strerror(errno));
-        exit(errno);
+        pipefd[0] = pipefd[1] = -1;
+        return;
     }
     set_non_block(pipefd[0]);
     set_non_block(pipefd[1]);
@@ -270,7 +271,7 @@ static inline int new_nonblock_sockfd(int family, int sktype) {
     int sockfd = socket(family, sktype, 0);
     if (sockfd < 0) {
         LOGERR("[new_nonblock_sockfd] socket(%s, %s): %s", family == AF_INET ? "AF_INET" : "AF_INET6", sktype == SOCK_STREAM ? "SOCK_STREAM" : "SOCK_DGRAM", my_strerror(errno));
-        exit(errno);
+        return -1;
     }
     set_non_block(sockfd);
     if (family == AF_INET6) set_ipv6_only(sockfd);
