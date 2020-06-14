@@ -7,7 +7,6 @@
 #include <stdbool.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#undef _GNU_SOURCE
 
 #define IP4BINLEN 4
 #define IP6BINLEN 16

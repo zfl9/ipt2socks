@@ -4,7 +4,6 @@
 #define _GNU_SOURCE
 #include <stdio.h>
 #include <time.h>
-#undef _GNU_SOURCE
 
 #define LOGINF(fmt, ...)                                                     \
     do {                                                                     \

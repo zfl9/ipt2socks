@@ -3,7 +3,6 @@
 
 #define _GNU_SOURCE
 #include "netutils.h"
-#undef _GNU_SOURCE
 
 /* socks5 protocol version number */
 #define SOCKS5_VERSION 0x05

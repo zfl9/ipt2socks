@@ -1,6 +1,5 @@
 #define _GNU_SOURCE
 #include "lrucache.h"
-#undef _GNU_SOURCE
 
 static uint16_t g_lrucache_maxsize = 256;
 

@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
-#undef _GNU_SOURCE
 
 socks5_authreq_t g_socks5_auth_request = {
     .version = SOCKS5_VERSION,

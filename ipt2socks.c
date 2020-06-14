@@ -20,7 +20,6 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
-#undef _GNU_SOURCE
 
 #define IF_VERBOSE if (g_verbose)
 

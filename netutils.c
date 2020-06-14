@@ -12,7 +12,6 @@
 #include <sys/resource.h>
 #include <pwd.h>
 #include <grp.h>
-#undef _GNU_SOURCE
 
 #ifndef PATH_MAX
   #define PATH_MAX 4096
