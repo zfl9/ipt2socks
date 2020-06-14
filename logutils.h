@@ -23,6 +23,4 @@
                 ##__VA_ARGS__);                                              \
     } while (0)
 
-const char* my_strerror(int errnum);
-
 #endif

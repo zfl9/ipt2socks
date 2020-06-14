@@ -381,7 +381,7 @@ int main(int argc, char* argv[]) {
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
         if (pthread_create(&(pthread_t){0}, NULL, run_event_loop, NULL)) {
-            LOGERR("[main] create worker thread: %s", my_strerror(errno));
+            LOGERR("[main] create worker thread: %s", strerror(errno));
             return errno;
         }
     }
@@ -402,11 +402,11 @@ static void* run_event_loop(void *is_main_thread) {
             int sockfd = new_tcp_listen_sockfd(AF_INET, is_tproxy, is_reuse_port, is_tfo_accept);
 
             if (bind(sockfd, (void *)&g_bind_skaddr4, sizeof(skaddr4_t)) < 0) {
-                LOGERR("[run_event_loop] bind tcp4 address: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] bind tcp4 address: %s", strerror(errno));
                 exit(errno);
             }
             if (listen(sockfd, SOMAXCONN) < 0) {
-                LOGERR("[run_event_loop] listen tcp4 socket: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] listen tcp4 socket: %s", strerror(errno));
                 exit(errno);
             }
 
@@ -420,11 +420,11 @@ static void* run_event_loop(void *is_main_thread) {
             int sockfd = new_tcp_listen_sockfd(AF_INET6, is_tproxy, is_reuse_port, is_tfo_accept);
 
             if (bind(sockfd, (void *)&g_bind_skaddr6, sizeof(skaddr6_t)) < 0) {
-                LOGERR("[run_event_loop] bind tcp6 address: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] bind tcp6 address: %s", strerror(errno));
                 exit(errno);
             }
             if (listen(sockfd, SOMAXCONN) < 0) {
-                LOGERR("[run_event_loop] listen tcp6 socket: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] listen tcp6 socket: %s", strerror(errno));
                 exit(errno);
             }
 
@@ -440,7 +440,7 @@ static void* run_event_loop(void *is_main_thread) {
             int sockfd = new_udp_tprecv_sockfd(AF_INET);
 
             if (bind(sockfd, (void *)&g_bind_skaddr4, sizeof(skaddr4_t)) < 0) {
-                LOGERR("[run_event_loop] bind udp4 address: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] bind udp4 address: %s", strerror(errno));
                 exit(errno);
             }
 
@@ -454,7 +454,7 @@ static void* run_event_loop(void *is_main_thread) {
             int sockfd = new_udp_tprecv_sockfd(AF_INET6);
 
             if (bind(sockfd, (void *)&g_bind_skaddr6, sizeof(skaddr6_t)) < 0) {
-                LOGERR("[run_event_loop] bind udp6 address: %s", my_strerror(errno));
+                LOGERR("[run_event_loop] bind udp6 address: %s", strerror(errno));
                 exit(errno);
             }
 
@@ -476,7 +476,7 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     int client_sockfd = tcp_accept(accept_watcher->fd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)});
     if (client_sockfd < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[tcp_tproxy_accept_cb] accept tcp%s socket: %s", isipv4 ? "4" : "6", my_strerror(errno));
+            LOGERR("[tcp_tproxy_accept_cb] accept tcp%s socket: %s", isipv4 ? "4" : "6", strerror(errno));
         }
         return;
     }
@@ -500,7 +500,7 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
 
     if (!tcp_connect(socks5_sockfd, &g_server_skaddr, tfo_data, tfo_datalen, &tfo_nsend)) {
-        LOGERR("[tcp_tproxy_accept_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, my_strerror(errno));
+        LOGERR("[tcp_tproxy_accept_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
         tcp_close_by_rst(client_sockfd);
         close(socks5_sockfd);
         return;
@@ -572,7 +572,7 @@ static inline void tcp_context_release(evloop_t *evloop, tcp_context_t *context,
 
 static void tcp_socks5_connect_cb(evloop_t *evloop, evio_t *socks5_watcher, int revents __attribute__((unused))) {
     if (tcp_has_error(socks5_watcher->fd)) {
-        LOGERR("[tcp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, my_strerror(errno));
+        LOGERR("[tcp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
         tcp_context_release(evloop, get_tcpctx_by_watcher(socks5_watcher), true);
         return;
     }
@@ -587,7 +587,7 @@ static int tcp_socks5_send_request(const char *funcname, evloop_t *evloop, evio_
     ssize_t nsend = send(socks5_watcher->fd, data + context->socks5_length, datalen - context->socks5_length, 0);
     if (nsend < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, strerror(errno));
             tcp_context_release(evloop, context, true);
             return -1;
         }
@@ -608,7 +608,7 @@ static int tcp_socks5_recv_response(const char *funcname, evloop_t *evloop, evio
     ssize_t nrecv = recv(socks5_watcher->fd, data + context->socks5_length, datalen - context->socks5_length, 0);
     if (nrecv < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, strerror(errno));
             tcp_context_release(evloop, context, true);
             return -1;
         }
@@ -741,7 +741,7 @@ static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher
         ssize_t nrecv = splice(self_watcher->fd, NULL, self_pipefd[1], NULL, TCP_SPLICE_MAXLEN, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (nrecv < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGERR("[tcp_stream_payload_forward_cb] recv from %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
+                LOGERR("[tcp_stream_payload_forward_cb] recv from %s stream: %s", self_is_client ? "client" : "socks5", strerror(errno));
                 tcp_context_release(evloop, context, true);
                 return;
             }
@@ -756,7 +756,7 @@ static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher
         ssize_t nsend = splice(self_pipefd[0], NULL, peer_watcher->fd, NULL, nrecv, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (nsend < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "socks5" : "client", my_strerror(errno));
+                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "socks5" : "client", strerror(errno));
                 tcp_context_release(evloop, context, true);
                 return;
             }
@@ -783,7 +783,7 @@ DO_WRITE:
         ssize_t nsend = splice(peer_pipefd[0], NULL, self_watcher->fd, NULL, remain_length, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (nsend < 0) {
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "client" : "socks5", my_strerror(errno));
+                LOGERR("[tcp_stream_payload_forward_cb] send to %s stream: %s", self_is_client ? "client" : "socks5", strerror(errno));
                 tcp_context_release(evloop, context, true);
             }
             return;
@@ -827,7 +827,7 @@ static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *tprecv_watcher, int 
     ssize_t nrecv = recvmsg(tprecv_watcher->fd, &msg, 0);
     if (nrecv < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[udp_tproxy_recvmsg_cb] recv from udp%s socket: %s", isipv4 ? "4" : "6", my_strerror(errno));
+            LOGERR("[udp_tproxy_recvmsg_cb] recv from udp%s socket: %s", isipv4 ? "4" : "6", strerror(errno));
         }
         return;
     }
@@ -871,7 +871,7 @@ static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *tprecv_watcher, int 
         ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
 
         if (!tcp_connect(tcp_sockfd, &g_server_skaddr, tfo_data, tfo_datalen, &tfo_nsend)) {
-            LOGERR("[udp_tproxy_recvmsg_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, my_strerror(errno));
+            LOGERR("[udp_tproxy_recvmsg_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
             close(tcp_sockfd);
             return;
         }
@@ -920,7 +920,7 @@ static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *tprecv_watcher, int 
     nrecv = send(context->udp_watcher.fd, g_udp_dgram_buffer, headerlen + nrecv, 0);
     if (nrecv < 0) {
         parse_socket_addr(&skaddr, ipstr, &portno);
-        LOGERR("[udp_tproxy_recvmsg_cb] send to %s#%hu: %s", ipstr, portno, my_strerror(errno));
+        LOGERR("[udp_tproxy_recvmsg_cb] send to %s#%hu: %s", ipstr, portno, strerror(errno));
         return;
     }
     IF_VERBOSE {
@@ -939,7 +939,7 @@ static inline void udp_socks5ctx_release(evloop_t *evloop, udp_socks5ctx_t *cont
 
 static void udp_socks5_connect_cb(evloop_t *evloop, evio_t *tcp_watcher, int revents __attribute__((unused))) {
     if (tcp_has_error(tcp_watcher->fd)) {
-        LOGERR("[udp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, my_strerror(errno));
+        LOGERR("[udp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
         udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
         return;
     }
@@ -954,7 +954,7 @@ static int udp_socks5_send_request(const char *funcname, evloop_t *evloop, evio_
     ssize_t n = send(tcp_watcher->fd, data + *nsend, datalen - *nsend, 0);
     if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            LOGERR("[%s] send to %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, strerror(errno));
             udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
             return -1;
         }
@@ -975,7 +975,7 @@ static int udp_socks5_recv_response(const char *funcname, evloop_t *evloop, evio
     ssize_t n = recv(tcp_watcher->fd, data + *nrecv, datalen - *nrecv, 0);
     if (n < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, my_strerror(errno));
+            LOGERR("[%s] recv from %s#%hu: %s", funcname, g_server_ipstr, g_server_portno, strerror(errno));
             udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
             return -1;
         }
@@ -1110,7 +1110,7 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
 
     int udp_sockfd = new_udp_normal_sockfd(tunisipv4 ? AF_INET : AF_INET6);
     if (connect(udp_sockfd, (void *)&tunskaddr, tunisipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
-        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", tunisipv4 ? "4" : "6", my_strerror(errno));
+        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", tunisipv4 ? "4" : "6", strerror(errno));
         udp_socks5ctx_release(evloop, context);
         close(udp_sockfd);
         return;
@@ -1129,7 +1129,7 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
             portno = ntohs(udp6msg->portnum);
         }
         if (nsend < 0) {
-            LOGERR("[udp_socks5_recv_proxyresp_cb] send to %s#%hu: %s", ipstr, portno, my_strerror(errno));
+            LOGERR("[udp_socks5_recv_proxyresp_cb] send to %s#%hu: %s", ipstr, portno, strerror(errno));
         } else {
             LOGINF("[udp_socks5_recv_proxyresp_cb] send to %s#%hu, nsend:%zd", ipstr, portno, nsend);
         }
@@ -1158,7 +1158,7 @@ static void udp_socks5_recv_tcpmessage_cb(evloop_t *evloop, evio_t *tcp_watcher,
         IF_VERBOSE LOGINF("[udp_socks5_recv_tcpmessage_cb] recv FIN from socks5 server, release ctx");
         udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
     } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
-        LOGERR("[udp_socks5_recv_tcpmessage_cb] recv from socks5 server: %s", my_strerror(errno));
+        LOGERR("[udp_socks5_recv_tcpmessage_cb] recv from socks5 server: %s", strerror(errno));
         udp_socks5ctx_release(evloop, get_udpsk5ctx_by_tcp(tcp_watcher));
     }
 }
@@ -1167,7 +1167,7 @@ static void udp_socks5_recv_udpmessage_cb(evloop_t *evloop, evio_t *udp_watcher,
     ssize_t nrecv = recv(udp_watcher->fd, g_udp_dgram_buffer, UDP_DATAGRAM_MAXSIZ, 0);
     if (nrecv < 0) {
         if (errno != EAGAIN && errno != EWOULDBLOCK) {
-            LOGERR("[udp_socks5_recv_udpmessage_cb] recv from socks5 server: %s", my_strerror(errno));
+            LOGERR("[udp_socks5_recv_udpmessage_cb] recv from socks5 server: %s", strerror(errno));
         }
         return;
     }
@@ -1218,7 +1218,7 @@ static void udp_socks5_recv_udpmessage_cb(evloop_t *evloop, evio_t *udp_watcher,
         }
         int tproxy_sockfd = new_udp_tpsend_sockfd(isipv4 ? AF_INET : AF_INET6);
         if (bind(tproxy_sockfd, (void *)&fromskaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
-            LOGERR("[udp_socks5_recv_udpmessage_cb] bind tproxy reply address: %s", my_strerror(errno));
+            LOGERR("[udp_socks5_recv_udpmessage_cb] bind tproxy reply address: %s", strerror(errno));
             close(tproxy_sockfd);
             return;
         }
@@ -1249,7 +1249,7 @@ static void udp_socks5_recv_udpmessage_cb(evloop_t *evloop, evio_t *udp_watcher,
     nrecv = sendto(tproxyctx->udp_sockfd, (void *)g_udp_dgram_buffer + headerlen, nrecv - headerlen, 0, (void *)&toskaddr, isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t));
     if (nrecv < 0) {
         parse_socket_addr(&toskaddr, ipstr, &portno);
-        LOGERR("[udp_socks5_recv_udpmessage_cb] send to %s#%hu: %s", ipstr, portno, my_strerror(errno));
+        LOGERR("[udp_socks5_recv_udpmessage_cb] send to %s#%hu: %s", ipstr, portno, strerror(errno));
         return;
     }
     IF_VERBOSE {
