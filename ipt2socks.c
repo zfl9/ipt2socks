@@ -21,12 +21,7 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
-#define IF_VERBOSE if (g_verbose)
-
-#define TCP_SPLICE_MAXLEN 65535 /* uint16_t: 0~65535 */
-
-#define IPT2SOCKS_VERSION "ipt2socks v1.1.3 <https://github.com/zfl9/ipt2socks>"
-
+/* splice() api */
 #ifndef SPLICE_F_MOVE
   #include <sys/syscall.h>
 
@@ -38,6 +33,12 @@
 
   #define splice(fdin, offin, fdout, offout, len, flags) syscall(__NR_splice, fdin, offin, fdout, offout, len, flags)
 #endif
+
+#define IF_VERBOSE if (g_verbose)
+
+#define TCP_SPLICE_MAXLEN 65535 /* uint16_t: 0~65535 */
+
+#define IPT2SOCKS_VERSION "ipt2socks v1.1.3 <https://github.com/zfl9/ipt2socks>"
 
 enum {
     OPT_ENABLE_TCP         = 0x01 << 0, // enable tcp proxy
