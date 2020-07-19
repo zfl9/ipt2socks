@@ -37,9 +37,7 @@
   #undef  SPLICE_F_NONBLOCK
   #define SPLICE_F_NONBLOCK 2
 
-  ssize_t splice(int fdin, __off64_t *offin, int fdout, __off64_t *offout, size_t len, unsigned int flags) {
-      return syscall(__NR_splice, fdin, offin, fdout, offout, len, flags);
-  }
+  #define splice(fdin, offin, fdout, offout, len, flags) syscall(__NR_splice, fdin, offin, fdout, offout, len, flags)
 #endif
 
 enum {
