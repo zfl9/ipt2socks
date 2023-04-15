@@ -6,6 +6,7 @@ ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **ip
 
 ## 简要说明
 
+- 使用 splice() 系统调用，理想情况下可实现零拷贝。
 - IPv4 和 IPv6 双栈支持，支持 **纯 TPROXY** 透明代理模式。
 - TCP 透明代理提供 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
 - UDP 透明代理支持 Full Cone NAT，前提是后端的 socks5 服务器支持 Full Cone NAT。
