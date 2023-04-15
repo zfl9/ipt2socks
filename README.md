@@ -1,30 +1,48 @@
 # ipt2socks(libev)
-类似 [redsocks](https://github.com/darkk/redsocks)、[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量。除此之外，ipt2socks 不提供任何非必要的功能（即：KISS 原则，`keep it simple, stupid`，保持简单和愚蠢）。ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
+
+类似 [redsocks](https://github.com/darkk/redsocks)、[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量，除此之外不提供任何非必要功能。
+
+ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
 
 ## 简要说明
-- IPv4 和 IPv6 双栈支持，支持 **纯 TPROXY** 透明代理模式，专为 [ss-tproxy](https://github.com/zfl9/ss-tproxy) 而写。
+
+- IPv4 和 IPv6 双栈支持，支持 **纯 TPROXY** 透明代理模式。
 - TCP 透明代理提供 REDIRECT、TPROXY 两种方式，UDP 透明代理为 TPROXY 方式。
 - UDP 透明代理支持 Full Cone NAT，前提是后端的 socks5 服务器支持 Full Cone NAT。
 - 多线程 + SO_REUSEPORT 端口重用，每个线程运行各自独立的事件循环，性能提升显著。
 
 ## 如何编译
+
+> 为了方便使用，[releases](https://github.com/zfl9/ipt2socks/releases) 页面发布了 linux 下常见架构的 musl 静态链接二进制。
+
 ```bash
 git clone https://github.com/zfl9/ipt2socks
 cd ipt2socks
 make && sudo make install
 ```
-ipt2socks 默认安装到 `/usr/local/bin/ipt2socks`，可安装到其它目录，如 `make install DESTDIR=/opt/local/bin`。<br>
+
+ipt2socks 默认安装到 `/usr/local/bin/ipt2socks`，可安装到其它目录，如 `make install DESTDIR=/opt/local/bin`。
+
 交叉编译时只需指定 CC 变量，如 `make CC=aarch64-linux-gnu-gcc`（若报错或异常，请执行 `make clean`，然后再试）。
 
 ## 如何运行
+
 ```bash
 # -s 指定 socks5 服务器 ip
 # -p 指定 socks5 服务器端口
 ipt2socks -s 127.0.0.1 -p 1080
-```
-> ipt2socks 启动后，配置相应的 iptables 规则即可。这里就不详细介绍了，有兴趣的请戳 [ss-tproxy](https://github.com/zfl9/ss-tproxy)。
 
-**全部参数**
+# 如果想后台运行，可以这样启动：
+(ipt2socks -s 127.0.0.1 -p 1080 </dev/null &>>/var/log/ipt2socks.log &)
+```
+
+ipt2socks 启动后，配置相应 iptables/nftables 规则即可，关于 iptables 规则，可以看看：
+
+- https://github.com/zfl9/ss-tproxy
+- https://gist.github.com/zfl9/d52482118f38ce2c16195583dffc44d2
+
+## 全部参数
+
 ```bash
 $ ipt2socks --help
 usage: ipt2socks <options...>. the existing options are as follows:
@@ -53,6 +71,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -V, --version                      print ipt2socks version number and exit
  -h, --help                         print ipt2socks help information and exit
 ```
+
 - `-s`选项：socks5 服务器的 IP 地址，默认为 127.0.0.1。
 - `-p`选项：socks5 服务器的监听端口，默认为 1080。
 - `-a`选项：socks5 代理认证的用户（若需要认证）。
@@ -75,11 +94,8 @@ usage: ipt2socks <options...>. the existing options are as follows:
 - `-w`选项：启用服务端的 TCP_Fast_Open（应设好内核参数）。
 - `-W`选项：启用客户端的 TCP_Fast_Open（应设好内核参数）。
 - `-v`选项：若指定此选项，则将会打印较为详尽的运行时日志。
-- `-V`选项：打印 ipt2socks 的版本号，并退出 ipt2socks 进程。
-- `-h`选项：打印 ipt2socks 的帮助信息，并退出 ipt2socks 进程。
 
-**以普通用户运行 ipt2socks**
+## 以普通用户运行
+
 - `sudo setcap cap_net_bind_service,cap_net_admin+ep /usr/local/bin/ipt2socks`
 - 如果以 root 用户启动 ipt2socks，也可以指定 `-u nobody` 选项切换至 `nobody` 用户
-
-Enjoy it!
