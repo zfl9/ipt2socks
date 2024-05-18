@@ -1114,7 +1114,9 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
     /* connect to the socks5 udp relay endpoint */
     int udp_sockfd = new_udp_normal_sockfd(relay_addr.sin6_family);
     if (connect(udp_sockfd, (void *)&relay_addr, relay_isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
-        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", resp_isipv4 ? "4" : "6", strerror(errno));
+        char ipstr[IP6STRLEN]; portno_t portno;
+        parse_socket_addr(&relay_addr, ipstr, &portno);
+        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp://%s#%u: %s", ipstr, (unsigned)portno, strerror(errno));
         udp_socks5ctx_release(evloop, context);
         close(udp_sockfd);
         return;
