@@ -4,7 +4,7 @@
 
 用例 1：配合透明代理使用（如 [ss-tproxy](https://github.com/zfl9/ss-tproxy)），为那些只支持 socks5 传入协议的“代理进程”提供 **iptables/nftables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
 
-用例 2：将透明代理主机上的“代理进程”分离出来，因为“代理”通常涉及加解密等耗性能的操作，如果透明代理主机性能比较弱，最好将“代理进程”放到另外一个性能更强的局域网主机去运行（提供 socks5 传入协议），然后在透明代理主机上，运行 ipt2socks 来对接这个“代理”。ipt2socks 在设计和编码时特意考虑了性能，尽可能实现零拷贝，降低开销。
+用例 2：将透明代理主机上的“代理进程”分离出来，因为“代理”通常涉及加解密等耗性能的操作，如果透明代理主机性能比较弱，最好将“代理进程”放到另外一个性能更强的局域网主机去运行（提供 socks5 传入），然后在透明代理主机上运行 ipt2socks 来对接这个“代理”。ipt2socks 在设计和编码上特意考虑了性能，尽可能实现零拷贝，降低开销。
 
 ## 简要说明
 
@@ -107,4 +107,4 @@ usage: ipt2socks <options...>. the existing options are as follows:
 
 由于透明代理需要消耗较多文件描述符，为确保最佳体验，请务必留意 ipt2socks 的 nofile limit（可同时打开的文件描述符数量），默认的 nofile limit 非常小，对于透明代理场景基本是不够用的。
 
-从 v1.1.4 版本开始，ipt2socks 启动时将打印进程的 nofile limit 信息，请确保这个值至少在 10000 以上（很多系统默认是 1024），你可以选择使用 `-n` 选项调整此限制，也可以其他方式，如 systemd service 文件的 `LimitNOFILE`、`/etc/security/limits.conf` 配置文件。
+从 v1.1.4 版本开始，ipt2socks 启动时将打印进程的 nofile limit 信息，请确保这个值至少在 10000 以上（很多系统默认是 1024），你可以选择使用 `-n` 选项调整此限制（需要 CAP_SYS_RESOURCE 权限），也可以其他方式，如 systemd service 文件的 `LimitNOFILE`、`/etc/security/limits.conf` 配置文件。
