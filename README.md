@@ -107,4 +107,4 @@ usage: ipt2socks <options...>. the existing options are as follows:
 
 由于透明代理需要消耗较多文件描述符，为确保最佳体验，请务必留意 ipt2socks 的 nofile limit（可同时打开的文件描述符数量），默认的 nofile limit 非常小，对于透明代理场景基本是不够用的。
 
-从 v1.1.4 版本开始，ipt2socks 启动时将打印进程的 nofile limit 信息，请确保这个值至少在 10000 以上（很多系统默认是 1024），你可以选择使用 `-n` 选项调整此限制（需要 CAP_SYS_RESOURCE 权限），也可以其他方式，如 systemd service 文件的 `LimitNOFILE`、`/etc/security/limits.conf` 配置文件。
+从 v1.1.4 版本开始，ipt2socks 启动时将打印进程的 nofile limit 信息，请确保这个值至少在 10000 以上（很多系统默认是 1024），你可以选择使用 `-n` 选项调整此限制（需要 CAP_SYS_RESOURCE 权限），也可以使用其他方式，如 systemd service 文件的 `LimitNOFILE`、`/etc/security/limits.conf` 配置文件。
