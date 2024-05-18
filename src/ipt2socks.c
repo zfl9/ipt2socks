@@ -1093,25 +1093,28 @@ static void udp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *tcp_watcher, 
             return;
         }
     }
-    bool tunisipv4 = (uintptr_t)context->idle_timer.data == sizeof(socks5_ipv4resp_t);
+    bool resp_isipv4 = (uintptr_t)context->idle_timer.data == sizeof(socks5_ipv4resp_t);
 
-    skaddr6_t tunskaddr = {0};
-    if (tunisipv4) {
-        socks5_ipv4resp_t *response = tcp_watcher->data + 2;
-        skaddr4_t *addr = (void *)&tunskaddr;
-        addr->sin_family = AF_INET;
-        addr->sin_addr.s_addr = response->ipaddr4;
-        addr->sin_port = response->portnum;
-    } else {
-        socks5_ipv6resp_t *response = tcp_watcher->data + 2;
-        tunskaddr.sin6_family = AF_INET6;
-        memcpy(&tunskaddr.sin6_addr.s6_addr, &response->ipaddr6, IP6BINLEN);
-        tunskaddr.sin6_port = response->portnum;
-    }
+    /* the udp relay port (from the assoc response) */
+    portno_t relay_port = resp_isipv4 ?
+        ((socks5_ipv4resp_t *)(tcp_watcher->data + 2))->portnum :
+        ((socks5_ipv6resp_t *)(tcp_watcher->data + 2))->portnum;
 
-    int udp_sockfd = new_udp_normal_sockfd(tunisipv4 ? AF_INET : AF_INET6);
-    if (connect(udp_sockfd, (void *)&tunskaddr, tunisipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
-        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", tunisipv4 ? "4" : "6", strerror(errno));
+    /* the address is usually the same as the socks5 server address (except for the port) */
+    skaddr6_t relay_addr;
+    memcpy(&relay_addr, &g_server_skaddr, sizeof(g_server_skaddr));
+
+    /* update the port to the udp relay port */
+    bool relay_isipv4 = relay_addr.sin6_family == AF_INET;
+    if (relay_isipv4)
+        ((skaddr4_t *)&relay_addr)->sin_port = relay_port;
+    else
+        relay_addr.sin6_port = relay_port;
+
+    /* connect to the socks5 udp relay endpoint */
+    int udp_sockfd = new_udp_normal_sockfd(relay_addr.sin6_family);
+    if (connect(udp_sockfd, (void *)&relay_addr, relay_isipv4 ? sizeof(skaddr4_t) : sizeof(skaddr6_t)) < 0) {
+        LOGERR("[udp_socks5_recv_proxyresp_cb] connect to udp%s socket: %s", resp_isipv4 ? "4" : "6", strerror(errno));
         udp_socks5ctx_release(evloop, context);
         close(udp_sockfd);
         return;
