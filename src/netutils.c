@@ -344,6 +344,8 @@ bool get_tcp_orig_dstaddr(int family, int sockfd, void *dstaddr, bool is_tproxy)
     return true;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wsign-compare" /* CMSG_NXTHDR */
 bool get_udp_orig_dstaddr(int family, struct msghdr *msg, void *dstaddr) {
     if (family == AF_INET) {
         for (struct cmsghdr *cmsg = CMSG_FIRSTHDR(msg); cmsg; cmsg = CMSG_NXTHDR(msg, cmsg)) {
@@ -362,6 +364,7 @@ bool get_udp_orig_dstaddr(int family, struct msghdr *msg, void *dstaddr) {
     }
     return false;
 }
+#pragma GCC diagnostic pop
 
 /* same as `accept()`, just a simple wrapper */
 int tcp_accept(int sockfd, void *addr, socklen_t *addrlen) {
