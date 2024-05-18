@@ -4,7 +4,7 @@
 #define _GNU_SOURCE
 #include "uthash.h"
 #include "netutils.h"
-#include "libev/ev.h"
+#include "../libev/ev.h"
 
 typedef struct {
     ip_port_t  key_ipport;  // (local) source socket address

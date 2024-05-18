@@ -3,7 +3,7 @@
 #include "lrucache.h"
 #include "netutils.h"
 #include "protocol.h"
-#include "libev/ev.h"
+#include "../libev/ev.h"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
