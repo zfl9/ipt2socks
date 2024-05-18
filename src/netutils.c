@@ -59,6 +59,15 @@ void set_nofile_limit(size_t nofile) {
     }
 }
 
+size_t get_nofile_limit(void) {
+    struct rlimit v;
+    if (getrlimit(RLIMIT_NOFILE, &v) < 0) {
+        LOGERR("[get_nofile_limit] getrlimit(nofile): %s", strerror(errno));
+        v.rlim_cur = 0;
+    }
+    return v.rlim_cur;
+}
+
 /* declare function prototype (openwrt?) */
 int initgroups(const char *user, gid_t group);
 

@@ -368,9 +368,10 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ENABLE_IPV4) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr4, g_bind_portno);
     if (g_options & OPT_ENABLE_IPV6) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr6, g_bind_portno);
     if (g_tcp_syncnt_max) LOGINF("[main] max number of syn retries: %hhu", g_tcp_syncnt_max);
-    LOGINF("[main] udp cache maximum size: %hu", lrucache_get_maxsize());
-    LOGINF("[main] udp socket idle timeout: %hu", g_udp_idletimeout_sec);
+    LOGINF("[main] udp session cache capacity: %hu", lrucache_get_maxsize());
+    LOGINF("[main] udp session idle timeout: %hu", g_udp_idletimeout_sec);
     LOGINF("[main] number of worker threads: %hhu", g_nthreads);
+    LOGINF("[main] max file descriptor limit: %zu", get_nofile_limit());
     if (g_options & OPT_ENABLE_TCP) LOGINF("[main] enable tcp transparent proxy");
     if (g_options & OPT_ENABLE_UDP) LOGINF("[main] enable udp transparent proxy");
     if (g_options & OPT_TCP_USE_REDIRECT) LOGINF("[main] use redirect instead of tproxy");

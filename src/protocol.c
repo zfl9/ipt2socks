@@ -88,11 +88,11 @@ static inline const char* socks5_rcode2string(uint8_t rcode) {
 
 bool socks5_auth_response_check(const char *funcname, const socks5_authresp_t *response) {
     if (response->version != SOCKS5_VERSION) {
-        LOGERR("[%s] response->version:%#hhx is not SOCKS5:%#hhx", funcname, response->version, SOCKS5_VERSION);
+        LOGERR("[%s] response.version:%#hhx != %#hhx", funcname, response->version, SOCKS5_VERSION);
         return false;
     }
     if (response->method != g_socks5_auth_request.method) {
-        LOGERR("[%s] response->method:%#hhx is not %s:%#hhx", funcname, response->method, g_socks5_usrpwd_requestlen ? "USRPWD" : "NOAUTH", g_socks5_auth_request.method);
+        LOGERR("[%s] response.method:%#hhx != %s", funcname, response->method, g_socks5_usrpwd_requestlen ? "USRPWD" : "NOAUTH");
         return false;
     }
     return true;
@@ -100,11 +100,11 @@ bool socks5_auth_response_check(const char *funcname, const socks5_authresp_t *r
 
 bool socks5_usrpwd_response_check(const char *funcname, const socks5_usrpwdresp_t *response) {
     if (response->version != SOCKS5_USRPWD_VERSION) {
-        LOGERR("[%s] response->version:%#hhx is not VERSION1:%#hhx", funcname, response->version, SOCKS5_USRPWD_VERSION);
+        LOGERR("[%s] response.version:%#hhx != %#hhx", funcname, response->version, SOCKS5_USRPWD_VERSION);
         return false;
     }
     if (response->respcode != SOCKS5_USRPWD_AUTHSUCC) {
-        LOGERR("[%s] response->respcode:%#hhx is not AUTHSUCC:%#hhx", funcname, response->respcode, SOCKS5_USRPWD_AUTHSUCC);
+        LOGERR("[%s] response.respcode:%#hhx != AUTHSUCC", funcname, response->respcode);
         return false;
     }
     return true;
@@ -112,11 +112,11 @@ bool socks5_usrpwd_response_check(const char *funcname, const socks5_usrpwdresp_
 
 bool socks5_proxy_response_check(const char *funcname, const socks5_ipv4resp_t *response) {
     if (response->version != SOCKS5_VERSION) {
-        LOGERR("[%s] response->version:%#hhx is not SOCKS5:%#hhx", funcname, response->version, SOCKS5_VERSION);
+        LOGERR("[%s] response.version:%#hhx != %#hhx", funcname, response->version, SOCKS5_VERSION);
         return false;
     }
     if (response->respcode != SOCKS5_RESPCODE_SUCCEEDED) {
-        LOGERR("[%s] response->respcode:%#hhx(%s) is not SUCCEEDED:%#hhx", funcname, response->respcode, socks5_rcode2string(response->respcode), SOCKS5_RESPCODE_SUCCEEDED);
+        LOGERR("[%s] response.respcode:%#hhx(%s) != SUCCEEDED", funcname, response->respcode, socks5_rcode2string(response->respcode));
         return false;
     }
     return true;
