@@ -1,14 +1,11 @@
 CC = gcc
-CFLAGS = -std=c99 -Wall -Wextra -O2 -pthread
+CFLAGS = -std=c99 -Wall -Wextra -Wvla -pthread -O3 -flto -fno-strict-aliasing -ffunction-sections -fdata-sections -DNDEBUG
+LDFLAGS = -pthread -O3 -flto -fno-strict-aliasing -Wl,--gc-sections -s
 LIBS = -lm
-SRCS = ipt2socks.c lrucache.c netutils.c protocol.c
+SRCS = src/ipt2socks.c src/lrucache.c src/netutils.c src/protocol.c libev/ev.c
 OBJS = $(SRCS:.c=.o)
 MAIN = ipt2socks
 DESTDIR = /usr/local/bin
-
-EVCFLAGS = -O2 -fno-strict-aliasing
-EVSRCFILE = libev/ev.c
-EVOBJFILE = ev.o
 
 .PHONY: all install clean
 
@@ -19,13 +16,10 @@ install: $(MAIN)
 	install -m 0755 $(MAIN) $(DESTDIR)
 
 clean:
-	$(RM) *.o $(MAIN)
+	$(RM) $(MAIN) *.o libev/*.o
 
-$(MAIN): $(EVOBJFILE) $(OBJS)
-	$(CC) $(CFLAGS) -s -o $(MAIN) $(OBJS) $(EVOBJFILE) $(LIBS)
+$(MAIN): $(OBJS)
+	$(CC) $(LDFLAGS) -o $(MAIN) $(OBJS) $(LIBS)
 
 .c.o:
 	$(CC) $(CFLAGS) -c $< -o $@
-
-$(EVOBJFILE): $(EVSRCFILE)
-	$(CC) $(EVCFLAGS) -c $(EVSRCFILE) -o $(EVOBJFILE)
