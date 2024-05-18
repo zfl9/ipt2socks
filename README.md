@@ -1,8 +1,10 @@
 # ipt2socks(libev)
 
-类似 [redsocks](https://github.com/darkk/redsocks)、[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，用于将 iptables(REDIRECT/TPROXY) 流量转换为 socks5(tcp/udp) 流量，除此之外不提供任何非必要功能。
+类似 [redsocks](https://github.com/darkk/redsocks)、[redsocks2](https://github.com/semigodking/redsocks) 的实用工具，将 iptables/nftables (REDIRECT/TPROXY) 传入的流量转为 socks5(tcp/udp) 流量，除此之外不提供任何不必要的功能。
 
-ipt2socks 可以为仅支持 socks5 传入协议的“本地代理”提供 **iptables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
+用例 1：配合透明代理使用（如 [ss-tproxy](https://github.com/zfl9/ss-tproxy)），为那些只支持 socks5 传入协议的“代理进程”提供 **iptables/nftables 透明代理** 传入协议的支持，比如 ss/ssr 的 ss-local/ssr-local、v2ray 的 socks5 传入协议、trojan 的 socks5 客户端等等。
+
+用例 2：将透明代理主机上的“代理进程”分离出来，因为“代理”通常涉及加解密等耗性能的操作，如果透明代理主机性能比较弱，最好将“代理进程”放到另外一个性能更强的局域网主机去运行（提供 socks5 传入协议），然后在透明代理主机上，运行 ipt2socks 来对接这个“代理”。ipt2socks 在设计和编码时特意考虑了性能，尽可能实现零拷贝，降低开销。
 
 ## 简要说明
 
@@ -100,3 +102,9 @@ usage: ipt2socks <options...>. the existing options are as follows:
 
 - `sudo setcap cap_net_bind_service,cap_net_admin+ep /usr/local/bin/ipt2socks`
 - 如果以 root 用户启动 ipt2socks，也可以指定 `-u nobody` 选项切换至 `nobody` 用户
+
+## nofile limit
+
+由于透明代理需要消耗较多文件描述符，为确保最佳体验，请务必留意 ipt2socks 的 nofile limit（可同时打开的文件描述符数量），默认的 nofile limit 非常小，对于透明代理场景基本是不够用的。
+
+从 v1.1.4 版本开始，ipt2socks 启动时将打印进程的 nofile limit 信息，请确保这个值至少在 10000 以上（很多系统默认是 1024），你可以选择使用 `-n` 选项调整此限制，也可以其他方式，如 systemd service 文件的 `LimitNOFILE`、`/etc/security/limits.conf` 配置文件。
