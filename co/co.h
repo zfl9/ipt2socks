@@ -12,7 +12,7 @@
 #define co__assert_same_type(a, b) co__static_assert(co__is_same_type(a, b))
 
 // used for `co_async`, `co_async_ex`
-void co_sentinel_cb(void *restrict co, void *);
+void co_sentinel(void *restrict co, void *);
 
 // the type of async fn (name the first arg as `c`)
 typedef void co_fn_t(void *restrict co, void *arg);
@@ -67,7 +67,7 @@ typedef void co_fn_t(void *restrict co, void *arg);
 // start an async call (does not suspend the current fn)
 #define co_async_ex(co, auto_free, fn, args...) do { \
     co__assert_same_type(co, struct fn *); \
-    co_init(co, co_sentinel_cb, (auto_free) ? (co) : NULL); \
+    co_init(co, co_sentinel, (auto_free) ? (co) : NULL); \
     fn(co, &(struct fn##_arg){args}); \
 } while (0)
 
@@ -76,7 +76,7 @@ typedef void co_fn_t(void *restrict co, void *arg);
 
 // wait for an async call to complete (must be used in an async fn)
 #define co_await(co) do { \
-    assert((co)->cont_cb == co_sentinel_cb); \
+    assert((co)->cont_cb == co_sentinel); \
     if ((co)->label != CO_LABEL_END) { \
         (co)->cont_cb = _fn_; \
         (co)->cont_co = c; \
