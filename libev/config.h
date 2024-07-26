@@ -1,13 +1,9 @@
 #pragma once
 
-#pragma GCC diagnostic ignored "-Wcomment"
 #pragma GCC diagnostic ignored "-Wunused-function"
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
-#ifdef __clang__
-#pragma GCC diagnostic ignored "-Wextern-initializer"
-#endif
 
 /* libev-4.33 */
 #define EV_STANDALONE 1 /* manual configuration */
@@ -47,12 +43,3 @@
 
 #define EV_MINPRI 0
 #define EV_MAXPRI 0
-
-/* typedef struct */
-typedef struct ev_loop  evloop_t;
-typedef struct ev_io    evio_t;
-typedef struct ev_timer evtimer_t;
-
-/* typedef callback */
-typedef void (*evio_cb_t)(evloop_t *evloop, evio_t *watcher, int revents);
-typedef void (*evtimer_cb_t)(evloop_t *evloop, evtimer_t *watcher, int revents);
