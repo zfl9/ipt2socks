@@ -2123,31 +2123,19 @@ typedef struct
   #define ANHE_at_cache(he)
 #endif
 
-#if EV_MULTIPLICITY
-
-  struct ev_loop
-  {
-    ev_tstamp ev_rt_now;
-    #define ev_rt_now ((loop)->ev_rt_now)
-    #define VAR(name,decl) decl;
-      #include "ev_vars.h"
-    #undef VAR
-  };
-  #include "ev_wrap.h"
-
-  static struct ev_loop default_loop_struct;
-  EV_API_DECL struct ev_loop *ev_default_loop_ptr = 0; /* needs to be initialised to make it a definition despite extern */
-
-#else
-
-  EV_API_DECL ev_tstamp ev_rt_now = EV_TS_CONST (0.); /* needs to be initialised to make it a definition despite extern */
-  #define VAR(name,decl) static decl;
+struct ev_loop
+{
+  ev_tstamp ev_rt_now;
+  #define ev_rt_now ((loop)->ev_rt_now)
+  #define VAR(name,decl) decl;
     #include "ev_vars.h"
   #undef VAR
+};
 
-  static int ev_default_loop_ptr;
+#include "ev_wrap.h"
 
-#endif
+static struct ev_loop default_loop_struct;
+static struct ev_loop *default_loop_ptr = NULL; /* `NULL` indicates that the default loop is not initialized */
 
 #if EV_FEATURE_API
 # define EV_RELEASE_CB if (ecb_expect_false (release_cb)) release_cb (EV_A)
@@ -2199,13 +2187,11 @@ get_clock (void)
   return ev_time ();
 }
 
-#if EV_MULTIPLICITY
 ev_tstamp
 ev_now (EV_P) EV_NOEXCEPT
 {
   return ev_rt_now;
 }
-#endif
 
 void
 ev_sleep (ev_tstamp delay) EV_NOEXCEPT
@@ -2712,9 +2698,7 @@ reheap (ANHE *heap, int N)
 typedef struct
 {
   EV_ATOMIC_T pending;
-#if EV_MULTIPLICITY
   EV_P;
-#endif
   WL head;
 } ANSIG;
 
@@ -2890,14 +2874,12 @@ pipecb (EV_P_ ev_io *iow, int revents)
 void
 ev_feed_signal (int signum) EV_NOEXCEPT
 {
-#if EV_MULTIPLICITY
   EV_P;
   ECB_MEMORY_FENCE_ACQUIRE;
   EV_A = signals [signum - 1].loop;
 
   if (!EV_A)
     return;
-#endif
 
   signals [signum - 1].pending = 1;
   evpipe_write (EV_A_ &sig_pending);
@@ -2924,13 +2906,11 @@ ev_feed_signal_event (EV_P_ int signum) EV_NOEXCEPT
 
   --signum;
 
-#if EV_MULTIPLICITY
   /* it is permissible to try to feed a signal to the wrong loop */
   /* or, likely more useful, feeding a signal nobody is waiting for */
 
   if (ecb_expect_false (signals [signum].loop != EV_A))
     return;
-#endif
 
   signals [signum].pending = 0;
   ECB_MEMORY_FENCE_RELEASE;
@@ -3357,11 +3337,9 @@ ev_loop_destroy (EV_P)
 {
   int i;
 
-#if EV_MULTIPLICITY
   /* mimic free (0) */
   if (!EV_A)
     return;
-#endif
 
 #if EV_CLEANUP_ENABLE
   /* queue cleanup watchers (and execute them) */
@@ -3463,14 +3441,10 @@ ev_loop_destroy (EV_P)
 
   backend = 0;
 
-#if EV_MULTIPLICITY
   if (ev_is_default_loop (EV_A))
-#endif
-    ev_default_loop_ptr = 0;
-#if EV_MULTIPLICITY
+    default_loop_ptr = NULL;
   else
     ev_free (EV_A);
-#endif
 }
 
 #if EV_USE_INOTIFY
@@ -3541,15 +3515,13 @@ loop_fork (EV_P)
   postfork = 0;
 }
 
-#if EV_MULTIPLICITY
-
 ecb_cold
 struct ev_loop *
 ev_loop_new (unsigned int flags) EV_NOEXCEPT
 {
   EV_P = (struct ev_loop *)ev_malloc (sizeof (struct ev_loop));
 
-  memset (EV_A, 0, sizeof (struct ev_loop));
+  memset (EV_A_ 0, sizeof (struct ev_loop));
   loop_init (EV_A_ flags);
 
   if (ev_backend (EV_A))
@@ -3558,8 +3530,6 @@ ev_loop_new (unsigned int flags) EV_NOEXCEPT
   ev_free (EV_A);
   return 0;
 }
-
-#endif /* multiplicity */
 
 #if EV_VERIFY
 ecb_noinline ecb_cold
@@ -3687,22 +3657,14 @@ ev_verify (EV_P) EV_NOEXCEPT
 }
 #endif
 
-#if EV_MULTIPLICITY
 ecb_cold
 struct ev_loop *
-#else
-int
-#endif
 ev_default_loop (unsigned int flags) EV_NOEXCEPT
 {
-  if (!ev_default_loop_ptr)
+  if (!default_loop_ptr)
     {
-#if EV_MULTIPLICITY
-      EV_P = ev_default_loop_ptr = &default_loop_struct;
-#else
-      ev_default_loop_ptr = 1;
-#endif
-
+      EV_P = default_loop_ptr = &default_loop_struct;
+      memset (EV_A_ 0, sizeof (struct ev_loop));
       loop_init (EV_A_ flags);
 
       if (ev_backend (EV_A))
@@ -3715,10 +3677,16 @@ ev_default_loop (unsigned int flags) EV_NOEXCEPT
 #endif
         }
       else
-        ev_default_loop_ptr = 0;
+        default_loop_ptr = NULL;
     }
 
-  return ev_default_loop_ptr;
+  return default_loop_ptr;
+}
+
+int
+ev_is_default_loop (EV_P) EV_NOEXCEPT
+{
+  return EV_A == default_loop_ptr;
 }
 
 void
@@ -4557,13 +4525,11 @@ ev_signal_start (EV_P_ ev_signal *w) EV_NOEXCEPT
 
   assert (("libev: ev_signal_start called with illegal signal number", w->signum > 0 && w->signum < EV_NSIG));
 
-#if EV_MULTIPLICITY
   assert (("libev: a signal must not be attached to two different loops",
            !signals [w->signum - 1].loop || signals [w->signum - 1].loop == loop));
 
   signals [w->signum - 1].loop = EV_A;
   ECB_MEMORY_FENCE_RELEASE;
-#endif
 
   EV_FREQUENT_CHECK;
 
@@ -4646,9 +4612,7 @@ ev_signal_stop (EV_P_ ev_signal *w) EV_NOEXCEPT
 
   if (!signals [w->signum - 1].head)
     {
-#if EV_MULTIPLICITY
       signals [w->signum - 1].loop = 0; /* unattach from signal */
-#endif
 #if EV_USE_SIGNALFD
       if (sigfd >= 0)
         {
@@ -4676,9 +4640,8 @@ ev_signal_stop (EV_P_ ev_signal *w) EV_NOEXCEPT
 void
 ev_child_start (EV_P_ ev_child *w) EV_NOEXCEPT
 {
-#if EV_MULTIPLICITY
-  assert (("libev: child watchers are only supported in the default loop", loop == ev_default_loop_ptr));
-#endif
+  assert (("libev: child watchers are only supported in the default loop", loop == default_loop_ptr));
+
   if (ecb_expect_false (ev_is_active (w)))
     return;
 
@@ -5617,7 +5580,4 @@ ev_walk (EV_P_ int types, void (*cb)(EV_P_ int type, void *w)) EV_NOEXCEPT
 }
 #endif
 
-#if EV_MULTIPLICITY
-  #include "ev_wrap.h"
-#endif
-
+#include "ev_wrap.h"

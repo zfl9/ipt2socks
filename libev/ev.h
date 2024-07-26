@@ -59,11 +59,6 @@ EV_CPP(extern "C" {)
 
 /*****************************************************************************/
 
-/* pre-4.0 compatibility */
-#ifndef EV_COMPAT3
-# define EV_COMPAT3 1
-#endif
-
 #ifndef EV_FEATURES
 # if defined __OPTIMIZE_SIZE__
 #  define EV_FEATURES 0x7c
@@ -86,10 +81,6 @@ EV_CPP(extern "C" {)
 #endif
 #ifndef EV_MAXPRI
 # define EV_MAXPRI (EV_FEATURE_CONFIG ? +2 : 0)
-#endif
-
-#ifndef EV_MULTIPLICITY
-# define EV_MULTIPLICITY EV_FEATURE_CONFIG
 #endif
 
 #ifndef EV_PERIODIC_ENABLE
@@ -174,27 +165,11 @@ typedef EV_TSTAMP_T ev_tstamp;
 #endif
 
 /* support multiple event loops? */
-#if EV_MULTIPLICITY
 struct ev_loop;
 # define EV_P  struct ev_loop *loop               /* a loop as sole parameter in a declaration */
 # define EV_P_ EV_P,                              /* a loop as first of multiple parameters */
 # define EV_A  loop                               /* a loop as sole argument to a function call */
 # define EV_A_ EV_A,                              /* a loop as first of multiple arguments */
-# define EV_DEFAULT_UC  ev_default_loop_uc_ ()    /* the default loop, if initialised, as sole arg */
-# define EV_DEFAULT_UC_ EV_DEFAULT_UC,            /* the default loop as first of multiple arguments */
-# define EV_DEFAULT  ev_default_loop (0)          /* the default loop as sole arg */
-# define EV_DEFAULT_ EV_DEFAULT,                  /* the default loop as first of multiple arguments */
-#else
-# define EV_P void
-# define EV_P_
-# define EV_A
-# define EV_A_
-# define EV_DEFAULT
-# define EV_DEFAULT_
-# define EV_DEFAULT_UC
-# define EV_DEFAULT_UC_
-# undef EV_EMBED_ENABLE
-#endif
 
 /* EV_INLINE is used for functions in header files */
 #if __STDC_VERSION__ >= 199901L || __GNUC__ >= 3
@@ -228,9 +203,6 @@ enum {
   EV__IOFDSET =            0x80, /* internal use only */
   EV_IO       =         EV_READ, /* alias for type-detection */
   EV_TIMER    =      0x00000100, /* timer timed out */
-#if EV_COMPAT3
-  EV_TIMEOUT  =        EV_TIMER, /* pre 4.0 API compatibility */
-#endif
   EV_PERIODIC =      0x00000200, /* periodic timer timed out */
   EV_SIGNAL   =      0x00000400, /* signal was received */
   EV_CHILD    =      0x00000800, /* child/pid had status change */
@@ -508,9 +480,6 @@ enum {
   EVFLAG_FORKCHECK  = 0x02000000U, /* check for a fork in each iteration */
   /* debugging/feature disable */
   EVFLAG_NOINOTIFY  = 0x00100000U, /* do not attempt to use inotify */
-#if EV_COMPAT3
-  EVFLAG_NOSIGFD    = 0, /* compatibility to pre-3.9 */
-#endif
   EVFLAG_SIGNALFD   = 0x00200000U, /* attempt to use signalfd */
   EVFLAG_NOSIGMASK  = 0x00400000U, /* avoid modifying the signal mask */
   EVFLAG_NOTIMERFD  = 0x00800000U  /* avoid creating a timerfd */
@@ -555,55 +524,16 @@ EV_API_DECL void ev_set_allocator (void *(*cb)(void *ptr, long size) EV_NOEXCEPT
  */
 EV_API_DECL void ev_set_syserr_cb (void (*cb)(const char *msg) EV_NOEXCEPT) EV_NOEXCEPT;
 
-#if EV_MULTIPLICITY
-
 /* the default loop is the only one that handles signals and child watchers */
 /* you can call this as often as you like */
 EV_API_DECL struct ev_loop *ev_default_loop (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
 
-#ifdef EV_API_STATIC
-EV_API_DECL struct ev_loop *ev_default_loop_ptr;
-#endif
-
-EV_INLINE struct ev_loop *
-ev_default_loop_uc_ (void) EV_NOEXCEPT
-{
-  extern struct ev_loop *ev_default_loop_ptr;
-
-  return ev_default_loop_ptr;
-}
-
-EV_INLINE int
-ev_is_default_loop (EV_P) EV_NOEXCEPT
-{
-  return EV_A == EV_DEFAULT_UC;
-}
+EV_API_DECL int ev_is_default_loop (EV_P) EV_NOEXCEPT;
 
 /* create and destroy alternative loops that don't handle signals */
 EV_API_DECL struct ev_loop *ev_loop_new (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
 
 EV_API_DECL ev_tstamp ev_now (EV_P) EV_NOEXCEPT; /* time w.r.t. timers and the eventloop, updated after each poll */
-
-#else
-
-EV_API_DECL int ev_default_loop (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT; /* returns true when successful */
-
-EV_API_DECL ev_tstamp ev_rt_now;
-
-EV_INLINE ev_tstamp
-ev_now (void) EV_NOEXCEPT
-{
-  return ev_rt_now;
-}
-
-/* looks weird, but ev_is_default_loop (EV_A) still works if this exists */
-EV_INLINE int
-ev_is_default_loop (void) EV_NOEXCEPT
-{
-  return 1;
-}
-
-#endif /* multiplicity */
 
 /* destroy event loops, also works for the default loop */
 EV_API_DECL void ev_loop_destroy (EV_P);
@@ -833,26 +763,7 @@ EV_API_DECL void ev_async_stop     (EV_P_ ev_async *w) EV_NOEXCEPT;
 EV_API_DECL void ev_async_send     (EV_P_ ev_async *w) EV_NOEXCEPT;
 # endif
 
-#if EV_COMPAT3
-  #define EVLOOP_NONBLOCK EVRUN_NOWAIT
-  #define EVLOOP_ONESHOT  EVRUN_ONCE
-  #define EVUNLOOP_CANCEL EVBREAK_CANCEL
-  #define EVUNLOOP_ONE    EVBREAK_ONE
-  #define EVUNLOOP_ALL    EVBREAK_ALL
-  #if EV_PROTOTYPES
-    EV_INLINE void ev_loop   (EV_P_ int flags) { ev_run   (EV_A_ flags); }
-    EV_INLINE void ev_unloop (EV_P_ int how  ) { ev_break (EV_A_ how  ); }
-    EV_INLINE void ev_default_destroy (void) { ev_loop_destroy (EV_DEFAULT); }
-    EV_INLINE void ev_default_fork    (void) { ev_loop_fork    (EV_DEFAULT); }
-    #if EV_FEATURE_API
-      EV_INLINE unsigned int ev_loop_count  (EV_P) { return ev_iteration  (EV_A); }
-      EV_INLINE unsigned int ev_loop_depth  (EV_P) { return ev_depth      (EV_A); }
-      EV_INLINE void         ev_loop_verify (EV_P) {        ev_verify     (EV_A); }
-    #endif
-  #endif
-#else
-  typedef struct ev_loop ev_loop;
-#endif
+typedef struct ev_loop ev_loop;
 
 #endif
 
