@@ -164,9 +164,10 @@ typedef EV_TSTAMP_T ev_tstamp;
 # include <sys/stat.h>
 #endif
 
+typedef struct ev_loop ev_loop;
+
 /* support multiple event loops? */
-struct ev_loop;
-# define EV_P  struct ev_loop *loop               /* a loop as sole parameter in a declaration */
+# define EV_P  ev_loop *loop               /* a loop as sole parameter in a declaration */
 # define EV_P_ EV_P,                              /* a loop as first of multiple parameters */
 # define EV_A  loop                               /* a loop as sole argument to a function call */
 # define EV_A_ EV_A,                              /* a loop as first of multiple arguments */
@@ -409,7 +410,7 @@ typedef struct ev_embed
 {
   EV_WATCHER (ev_embed)
 
-  struct ev_loop *other; /* ro */
+  ev_loop *other; /* ro */
 #undef EV_IO_ENABLE
 #define EV_IO_ENABLE 1
   ev_io io;              /* private */
@@ -526,12 +527,12 @@ EV_API_DECL void ev_set_syserr_cb (void (*cb)(const char *msg) EV_NOEXCEPT) EV_N
 
 /* the default loop is the only one that handles signals and child watchers */
 /* you can call this as often as you like */
-EV_API_DECL struct ev_loop *ev_default_loop (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
+EV_API_DECL ev_loop *ev_default_loop (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
 
 EV_API_DECL int ev_is_default_loop (EV_P) EV_NOEXCEPT;
 
 /* create and destroy alternative loops that don't handle signals */
-EV_API_DECL struct ev_loop *ev_loop_new (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
+EV_API_DECL ev_loop *ev_loop_new (unsigned int flags EV_CPP (= 0)) EV_NOEXCEPT;
 
 EV_API_DECL ev_tstamp ev_now (EV_P) EV_NOEXCEPT; /* time w.r.t. timers and the eventloop, updated after each poll */
 
@@ -762,8 +763,6 @@ EV_API_DECL void ev_async_start    (EV_P_ ev_async *w) EV_NOEXCEPT;
 EV_API_DECL void ev_async_stop     (EV_P_ ev_async *w) EV_NOEXCEPT;
 EV_API_DECL void ev_async_send     (EV_P_ ev_async *w) EV_NOEXCEPT;
 # endif
-
-typedef struct ev_loop ev_loop;
 
 #endif
 

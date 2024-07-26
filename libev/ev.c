@@ -2134,8 +2134,8 @@ struct ev_loop
 
 #include "ev_wrap.h"
 
-static struct ev_loop default_loop_struct;
-static struct ev_loop *default_loop_ptr = NULL; /* `NULL` indicates that the default loop is not initialized */
+static ev_loop default_loop_struct;
+static ev_loop *default_loop_ptr = NULL; /* `NULL` indicates that the default loop is not initialized */
 
 #if EV_FEATURE_API
 # define EV_RELEASE_CB if (ecb_expect_false (release_cb)) release_cb (EV_A)
@@ -3516,12 +3516,12 @@ loop_fork (EV_P)
 }
 
 ecb_cold
-struct ev_loop *
+ev_loop *
 ev_loop_new (unsigned int flags) EV_NOEXCEPT
 {
-  EV_P = (struct ev_loop *)ev_malloc (sizeof (struct ev_loop));
+  EV_P = (ev_loop *)ev_malloc (sizeof (ev_loop));
 
-  memset (EV_A_ 0, sizeof (struct ev_loop));
+  memset (EV_A_ 0, sizeof (ev_loop));
   loop_init (EV_A_ flags);
 
   if (ev_backend (EV_A))
@@ -3658,13 +3658,13 @@ ev_verify (EV_P) EV_NOEXCEPT
 #endif
 
 ecb_cold
-struct ev_loop *
+ev_loop *
 ev_default_loop (unsigned int flags) EV_NOEXCEPT
 {
   if (!default_loop_ptr)
     {
       EV_P = default_loop_ptr = &default_loop_struct;
-      memset (EV_A_ 0, sizeof (struct ev_loop));
+      memset (EV_A_ 0, sizeof (ev_loop));
       loop_init (EV_A_ flags);
 
       if (ev_backend (EV_A))
