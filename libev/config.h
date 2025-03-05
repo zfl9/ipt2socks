@@ -5,6 +5,7 @@
 #pragma GCC diagnostic ignored "-Wunused-parameter"
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wunused-value"
+#pragma GCC diagnostic ignored "-Wsign-compare"
 #ifdef __clang__
 #pragma GCC diagnostic ignored "-Wextern-initializer"
 #endif
