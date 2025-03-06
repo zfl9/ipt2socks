@@ -38,14 +38,6 @@
 #define EV_USE_PORT 0
 #define EV_USE_INOTIFY 0
 
-#define EV_USE_MONOTONIC 0
-#define EV_USE_REALTIME 0
-#define EV_USE_CLOCK_SYSCALL 0
-
-#define EV_USE_TIMERFD 0
-#define EV_USE_EVENTFD 0
-#define EV_USE_SIGNALFD 0
-
 #define EV_MINPRI 0
 #define EV_MAXPRI 0
 
