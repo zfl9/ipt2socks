@@ -38,7 +38,7 @@
 
 #define TCP_SPLICE_MAXLEN 65535 /* uint16_t: 0~65535 */
 
-#define IPT2SOCKS_VERSION "ipt2socks v1.1.4 <https://github.com/zfl9/ipt2socks>"
+#define IPT2SOCKS_VERSION "ipt2socks v1.1.5 <https://github.com/zfl9/ipt2socks>"
 
 enum {
     OPT_ENABLE_TCP         = 0x01 << 0, // enable tcp proxy
