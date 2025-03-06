@@ -15,8 +15,8 @@
 #define EV_COMPAT3 0 /* remove compatible code */
 #define EV_VERIFY 0 /* remove verification code */
 #define EV_USE_FLOOR 1 /* use libm.floor() function */
-// #define EV_NO_SMP 1 /* disable multi-threads support */
-// #define EV_NO_THREADS 1 /* disable multi-threads support */
+#define EV_NO_SMP 1 /* disable multi-threads support */
+#define EV_NO_THREADS 1 /* disable multi-threads support */
 #define EV_PERIODIC_ENABLE 0 /* disable ev_periodic watcher */
 #define EV_SIGNAL_ENABLE 0 /* disable ev_signal watcher */
 #define EV_CHILD_ENABLE 0 /* disable ev_child watcher */
