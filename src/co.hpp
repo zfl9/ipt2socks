@@ -39,7 +39,8 @@ struct CoFuture {
     }
 
 private:
-    explicit CoFuture(std::coroutine_handle<promise_type> co) : _co(co) {}
+    explicit CoFuture(std::coroutine_handle<promise_type> co) noexcept
+        : _co(co) {}
 
     CoFuture(const CoFuture &) = delete;
     CoFuture(CoFuture &&) = delete;
@@ -80,7 +81,8 @@ struct CoFuture<void> {
     void await_resume() const noexcept {}
 
 private:
-    explicit CoFuture(std::coroutine_handle<promise_type> co) : _co(co) {}
+    explicit CoFuture(std::coroutine_handle<promise_type> co) noexcept
+        : _co(co) {}
 
     CoFuture(const CoFuture &) = delete;
     CoFuture(CoFuture &&) = delete;
