@@ -9,10 +9,11 @@ private:
     static void add_pending(Fd *sock);
     static void remove_pending(Fd *sock);
 
-    int _epfd;
+    friend struct Fd;
+
+    int _epfd{-1};
 
     // pending list (dirty or zombie)
-    Fd *_pending_head, *_pending_tail;
-
-    friend struct Fd;
+    Fd *_pending_head{};
+    Fd *_pending_tail{};
 };
