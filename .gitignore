@@ -2,4 +2,5 @@
 *.gch
 a.out
 ipt2socks
+zig-out/
 .zig-cache/
