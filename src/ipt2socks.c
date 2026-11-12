@@ -49,6 +49,7 @@ enum {
     OPT_ALWAYS_REUSE_PORT  = 0x01 << 5, // always enable so_reuseport (since linux 3.9+)
     OPT_ENABLE_TFO_ACCEPT  = 0x01 << 6, // enable tcp_fastopen for listen socket (server tfo)
     OPT_ENABLE_TFO_CONNECT = 0x01 << 7, // enable tcp_fastopen for connect socket (client tfo)
+    OPT_SOCKS5_PIPELINE    = 0x01 << 9, // pipelined socks5 handshake + early client data
 };
 
 typedef struct {
@@ -58,6 +59,7 @@ typedef struct {
     int      socks5_pipefd[2]; // socks5 pipe buffer
     uint16_t client_length;    // nrecv/nsend, npipe
     uint16_t socks5_length;    // nrecv/nsend, npipe
+    uint16_t early_length;     // early data still in client_pipefd when the tunnel gets ready
 } tcp_context_t;
 
 static void* run_event_loop(void *is_main_thread);
@@ -71,6 +73,8 @@ static void tcp_socks5_recv_usrpwdresp_cb(evloop_t *evloop, evio_t *watcher, int
 static void tcp_socks5_send_proxyreq_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *watcher, int revents);
+static void tcp_client_early_data_cb(evloop_t *evloop, evio_t *watcher, int revents);
+static void tcp_start_early_data(evloop_t *evloop, void *context);
 
 static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void udp_socks5_connect_cb(evloop_t *evloop, evio_t *watcher, int revents);
@@ -129,6 +133,7 @@ static void print_command_help(void) {
            " -r, --reuse-port                   enable so_reuseport for single thread\n"
            " -w, --tfo-accept                   enable tcp_fastopen for server socket\n"
            " -W, --tfo-connect                  enable tcp_fastopen for client socket\n"
+           " -P, --pipeline                     pipelined socks5 handshake, early client data\n"
            " -v, --verbose                      print verbose log, affect performance\n"
            " -V, --version                      print ipt2socks version number and exit\n"
            " -h, --help                         print ipt2socks help information and exit\n"
@@ -137,7 +142,7 @@ static void print_command_help(void) {
 
 static void parse_command_args(int argc, char* argv[]) {
     opterr = 0; /* disable errmsg print, can get error by retval '?' */
-    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWvVh";
+    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWPvVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -160,6 +165,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"reuse-port",    no_argument,       NULL, 'r'},
         {"tfo-accept",    no_argument,       NULL, 'w'},
         {"tfo-connect",   no_argument,       NULL, 'W'},
+        {"pipeline",      no_argument,       NULL, 'P'},
         {"verbose",       no_argument,       NULL, 'v'},
         {"version",       no_argument,       NULL, 'V'},
         {"help",          no_argument,       NULL, 'h'},
@@ -301,6 +307,9 @@ static void parse_command_args(int argc, char* argv[]) {
             case 'W':
                 g_options |= OPT_ENABLE_TFO_CONNECT;
                 break;
+            case 'P':
+                g_options |= OPT_SOCKS5_PIPELINE;
+                break;
             case 'v':
                 g_verbose = true;
                 break;
@@ -378,6 +387,7 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ALWAYS_REUSE_PORT) LOGINF("[main] always enable reuseport feature");
     if (g_options & OPT_ENABLE_TFO_ACCEPT) LOGINF("[main] enable tfo for tcp server socket");
     if (g_options & OPT_ENABLE_TFO_CONNECT) LOGINF("[main] enable tfo for tcp client socket");
+    if (g_options & OPT_SOCKS5_PIPELINE) LOGINF("[main] pipelined socks5 handshake, early client data");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
@@ -495,15 +505,27 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
         LOGINF("[tcp_tproxy_accept_cb] target socket address: %s#%hu", ipstr, portno);
     }
 
+    /* the proxy request; pipelined: greeting + username/password + request in one buffer */
+    bool pipeline = g_options & OPT_SOCKS5_PIPELINE;
+    uint16_t proxyreq_len = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
+    uint16_t pre_len = pipeline ? sizeof(socks5_authreq_t) + g_socks5_usrpwd_requestlen : 0;
+    char *proxyreq = malloc(pre_len + proxyreq_len);
+    if (pipeline) {
+        memcpy(proxyreq, &g_socks5_auth_request, sizeof(socks5_authreq_t));
+        memcpy(proxyreq + sizeof(socks5_authreq_t), g_socks5_usrpwd_request, g_socks5_usrpwd_requestlen);
+    }
+    socks5_proxy_request_make((void *)(proxyreq + pre_len), &skaddr);
+
     int socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
-    const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? &g_socks5_auth_request : NULL;
-    uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? sizeof(socks5_authreq_t) : 0;
+    const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? (pipeline ? (void *)proxyreq : (void *)&g_socks5_auth_request) : NULL;
+    uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? (pipeline ? pre_len + proxyreq_len : sizeof(socks5_authreq_t)) : 0;
     ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
 
     if (!tcp_connect(socks5_sockfd, &g_server_skaddr, tfo_data, tfo_datalen, &tfo_nsend)) {
         LOGERR("[tcp_tproxy_accept_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
         tcp_close_by_rst(client_sockfd);
         close(socks5_sockfd);
+        free(proxyreq);
         return;
     }
     IF_VERBOSE {
@@ -515,15 +537,16 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     }
 
     tcp_context_t *context = malloc(sizeof(*context));
+    context->early_length = 0;
+    context->client_pipefd[0] = context->client_pipefd[1] = -1;
 
     /* if (watcher->events & EV_CUSTOM); then it is client watcher; fi */
     evio_t *watcher = &context->client_watcher;
     ev_io_init(watcher, tcp_stream_payload_forward_cb, client_sockfd, EV_READ | EV_CUSTOM);
 
-    /* build the ipv4/ipv6 proxy request (send to the socks5 proxy server) */
-    context->client_watcher.data = malloc(isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t));
-    context->client_length = isipv4 ? sizeof(socks5_ipv4req_t) : sizeof(socks5_ipv6req_t);
-    socks5_proxy_request_make(context->client_watcher.data, &skaddr);
+    /* the ipv4/ipv6 proxy request (send to the socks5 proxy server), built above */
+    context->client_watcher.data = proxyreq;
+    context->client_length = pre_len + proxyreq_len;
 
     watcher = &context->socks5_watcher;
     if (tfo_nsend >= 0 && (size_t)tfo_nsend >= tfo_datalen) {
@@ -537,6 +560,8 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
 
     context->socks5_watcher.data = malloc(sizeof(socks5_ipv6resp_t));
     context->socks5_length = (size_t)tfo_nsend;
+
+    if (pipeline && ev_cb(watcher) == tcp_socks5_recv_authresp_cb) tcp_start_early_data(evloop, context);
 }
 
 static inline tcp_context_t* get_tcpctx_by_watcher(evio_t *watcher) {
@@ -562,6 +587,10 @@ static inline void tcp_context_release(evloop_t *evloop, tcp_context_t *context,
     if (client_watcher->data || socks5_watcher->data) {
         free(client_watcher->data);
         free(socks5_watcher->data);
+        if (context->client_pipefd[0] >= 0) { /* early data */
+            close(context->client_pipefd[0]);
+            close(context->client_pipefd[1]);
+        }
     } else {
         close(context->client_pipefd[0]);
         close(context->client_pipefd[1]);
@@ -630,12 +659,17 @@ static int tcp_socks5_recv_response(const char *funcname, evloop_t *evloop, evio
 }
 
 static void tcp_socks5_send_authreq_cb(evloop_t *evloop, evio_t *socks5_watcher, int revents __attribute__((unused))) {
-    if (tcp_socks5_send_request("tcp_socks5_send_authreq_cb", evloop, socks5_watcher, &g_socks5_auth_request, sizeof(socks5_authreq_t)) != 1) {
+    tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
+    bool pipeline = g_options & OPT_SOCKS5_PIPELINE;
+    const void *data = pipeline ? context->client_watcher.data : (void *)&g_socks5_auth_request;
+    size_t datalen = pipeline ? context->client_length : sizeof(socks5_authreq_t);
+    if (tcp_socks5_send_request("tcp_socks5_send_authreq_cb", evloop, socks5_watcher, data, datalen) != 1) {
         return;
     }
     ev_io_stop(evloop, socks5_watcher);
     ev_io_init(socks5_watcher, tcp_socks5_recv_authresp_cb, socks5_watcher->fd, EV_READ);
     ev_io_start(evloop, socks5_watcher);
+    if (pipeline) tcp_start_early_data(evloop, context);
 }
 
 static void tcp_socks5_recv_authresp_cb(evloop_t *evloop, evio_t *socks5_watcher, int revents __attribute__((unused))) {
@@ -647,6 +681,11 @@ static void tcp_socks5_recv_authresp_cb(evloop_t *evloop, evio_t *socks5_watcher
         return;
     }
     tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
+    if (g_options & OPT_SOCKS5_PIPELINE) { /* username/password and request already sent: read their replies */
+        ev_set_cb(socks5_watcher, g_socks5_usrpwd_requestlen ? tcp_socks5_recv_usrpwdresp_cb : tcp_socks5_recv_proxyresp_cb);
+        if (!g_socks5_usrpwd_requestlen) context->client_length = sizeof(socks5_ipv4resp_t); // response_length
+        return;
+    }
     const void *data = g_socks5_usrpwd_requestlen ? &g_socks5_usrpwd_request : context->client_watcher.data;
     uint16_t datalen = g_socks5_usrpwd_requestlen ? g_socks5_usrpwd_requestlen : context->client_length;
     int ret = tcp_socks5_send_request("tcp_socks5_recv_authresp_cb", evloop, socks5_watcher, data, datalen);
@@ -678,6 +717,11 @@ static void tcp_socks5_recv_usrpwdresp_cb(evloop_t *evloop, evio_t *socks5_watch
         return;
     }
     tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
+    if (g_options & OPT_SOCKS5_PIPELINE) { /* request already sent: read its reply */
+        ev_set_cb(socks5_watcher, tcp_socks5_recv_proxyresp_cb);
+        context->client_length = sizeof(socks5_ipv4resp_t); // response_length
+        return;
+    }
     int ret = tcp_socks5_send_request("tcp_socks5_recv_usrpwdresp_cb", evloop, socks5_watcher, context->client_watcher.data, context->client_length);
     if (ret == 1) {
         ev_set_cb(socks5_watcher, tcp_socks5_recv_proxyresp_cb);
@@ -724,12 +768,58 @@ static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *socks5_watche
     free(context->client_watcher.data);
     context->client_watcher.data = NULL;
 
-    new_nonblock_pipefd(context->client_pipefd);
+    evio_t *client_watcher = &context->client_watcher;
+    ev_io_stop(evloop, client_watcher); /* early data watcher */
+    ev_set_cb(client_watcher, tcp_stream_payload_forward_cb);
+    if (context->client_pipefd[0] < 0) new_nonblock_pipefd(context->client_pipefd);
     new_nonblock_pipefd(context->socks5_pipefd);
 
-    ev_io_start(evloop, &context->client_watcher);
     ev_set_cb(socks5_watcher, tcp_stream_payload_forward_cb);
+    if (context->early_length) { /* early data left in the client pipe: flush it first */
+        context->client_length = context->early_length; // remain_length
+        ev_io_modify(client_watcher, EV_CUSTOM);
+        ev_io_stop(evloop, socks5_watcher);
+        ev_io_modify(socks5_watcher, EV_READ | EV_WRITE);
+        ev_io_start(evloop, socks5_watcher);
+    } else {
+        ev_io_modify(client_watcher, EV_READ | EV_CUSTOM);
+        ev_io_start(evloop, client_watcher);
+    }
     IF_VERBOSE LOGINF("[tcp_socks5_recv_proxyresp_cb] tunnel is ready, start forwarding ...");
+}
+
+/* the proxy request is sent: forward the client's first chunk without waiting for the replies */
+static void tcp_start_early_data(evloop_t *evloop, void *ctx) {
+    tcp_context_t *context = ctx;
+    if (context->client_pipefd[0] >= 0) return;
+    new_nonblock_pipefd(context->client_pipefd);
+    if (context->client_pipefd[0] < 0) return;
+    ev_set_cb(&context->client_watcher, tcp_client_early_data_cb);
+    ev_io_start(evloop, &context->client_watcher);
+}
+
+static void tcp_client_early_data_cb(evloop_t *evloop, evio_t *client_watcher, int revents __attribute__((unused))) {
+    tcp_context_t *context = get_tcpctx_by_watcher(client_watcher);
+    ssize_t nrecv = splice(client_watcher->fd, NULL, context->client_pipefd[1], NULL, TCP_SPLICE_MAXLEN, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+    if (nrecv < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) return;
+    ev_io_stop(evloop, client_watcher); /* one chunk; the rest after the replies */
+    if (nrecv < 0) {
+        LOGERR("[tcp_client_early_data_cb] recv from client stream: %s", strerror(errno));
+        tcp_context_release(evloop, context, true);
+        return;
+    }
+    if (nrecv == 0) return; /* FIN: seen again once the tunnel is ready */
+    ssize_t nsend = splice(context->client_pipefd[0], NULL, context->socks5_watcher.fd, NULL, nrecv, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
+    if (nsend < 0) {
+        if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            LOGERR("[tcp_client_early_data_cb] send to socks5 stream: %s", strerror(errno));
+            tcp_context_release(evloop, context, true);
+            return;
+        }
+        nsend = 0;
+    }
+    context->early_length = nrecv - nsend;
+    IF_VERBOSE LOGINF("[tcp_client_early_data_cb] early data to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, nsend);
 }
 
 static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher, int revents) {
