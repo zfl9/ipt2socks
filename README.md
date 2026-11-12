@@ -57,6 +57,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1
  -l, --listen-port <port>           listen port number, default: 60080
  -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits
+ -t, --tcp-timeout <sec>            tcp connect+handshake timeout, default: 15
  -c, --cache-size <size>            udp context cache maxsize, default: 256
  -o, --udp-timeout <sec>            udp context idle timeout, default: 60
  -j, --thread-nums <num>            number of the worker threads, default: 1

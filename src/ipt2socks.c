@@ -54,6 +54,7 @@ enum {
 typedef struct {
     evio_t   client_watcher;   // .data: socks5 mesg
     evio_t   socks5_watcher;   // .data: socks5 mesg
+    evtimer_t handshake_timer; // connect + socks5 handshake deadline
     int      client_pipefd[2]; // client pipe buffer
     int      socks5_pipefd[2]; // socks5 pipe buffer
     uint16_t client_length;    // nrecv/nsend, npipe
@@ -71,6 +72,7 @@ static void tcp_socks5_recv_usrpwdresp_cb(evloop_t *evloop, evio_t *watcher, int
 static void tcp_socks5_send_proxyreq_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *watcher, int revents);
+static void tcp_handshake_timeout_cb(evloop_t *evloop, evtimer_t *watcher, int revents);
 
 static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void udp_socks5_connect_cb(evloop_t *evloop, evio_t *watcher, int revents);
@@ -100,6 +102,7 @@ static portno_t  g_server_portno           = 1080;
 static skaddr6_t g_server_skaddr           = {0};
 
 static uint8_t g_tcp_syncnt_max = 0; // 0: use default syncnt
+static uint16_t g_tcp_handshake_timeout_sec = 15; // 0: no timeout
 
 static uint16_t         g_udp_idletimeout_sec                   = 60;
 static udp_socks5ctx_t *g_udp_socks5ctx_table                   = NULL;
@@ -116,6 +119,7 @@ static void print_command_help(void) {
            " -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1\n"
            " -l, --listen-port <port>           listen port number, default: 60080\n"
            " -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits\n"
+           " -t, --tcp-timeout <sec>            tcp connect+handshake timeout, default: 15\n"
            " -c, --cache-size <size>            udp context cache maxsize, default: 256\n"
            " -o, --udp-timeout <sec>            udp context idle timeout, default: 60\n"
            " -j, --thread-nums <num>            number of the worker threads, default: 1\n"
@@ -137,7 +141,7 @@ static void print_command_help(void) {
 
 static void parse_command_args(int argc, char* argv[]) {
     opterr = 0; /* disable errmsg print, can get error by retval '?' */
-    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWvVh";
+    const char *optstr = ":s:p:a:k:b:B:l:S:t:c:o:j:n:u:TU46RrwWvVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -147,6 +151,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"listen-addr6",  required_argument, NULL, 'B'},
         {"listen-port",   required_argument, NULL, 'l'},
         {"tcp-syncnt",    required_argument, NULL, 'S'},
+        {"tcp-timeout",   required_argument, NULL, 't'},
         {"cache-size",    required_argument, NULL, 'c'},
         {"udp-timeout",   required_argument, NULL, 'o'},
         {"thread-nums",   required_argument, NULL, 'j'},
@@ -247,6 +252,9 @@ static void parse_command_args(int argc, char* argv[]) {
                     printf("[parse_command_args] invalid number of syn retransmits: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
+                break;
+            case 't':
+                g_tcp_handshake_timeout_sec = strtoul(optarg, NULL, 10);
                 break;
             case 'c':
                 if (strtoul(optarg, NULL, 10) == 0) {
@@ -368,6 +376,7 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ENABLE_IPV4) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr4, g_bind_portno);
     if (g_options & OPT_ENABLE_IPV6) LOGINF("[main] listen address: %s#%hu", g_bind_ipstr6, g_bind_portno);
     if (g_tcp_syncnt_max) LOGINF("[main] max number of syn retries: %hhu", g_tcp_syncnt_max);
+    LOGINF("[main] tcp connect+handshake timeout: %hu", g_tcp_handshake_timeout_sec);
     LOGINF("[main] udp session cache capacity: %hu", lrucache_get_maxsize());
     LOGINF("[main] udp session idle timeout: %hu", g_udp_idletimeout_sec);
     LOGINF("[main] number of worker threads: %hhu", g_nthreads);
@@ -516,6 +525,11 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
 
     tcp_context_t *context = malloc(sizeof(*context));
 
+    /* the client side is not watched until the tunnel is ready: without a deadline, a socks5
+     * server that never completes the handshake keeps both sockets open forever */
+    ev_timer_init(&context->handshake_timer, tcp_handshake_timeout_cb, g_tcp_handshake_timeout_sec, 0);
+    if (g_tcp_handshake_timeout_sec) ev_timer_start(evloop, &context->handshake_timer);
+
     /* if (watcher->events & EV_CUSTOM); then it is client watcher; fi */
     evio_t *watcher = &context->client_watcher;
     ev_io_init(watcher, tcp_stream_payload_forward_cb, client_sockfd, EV_READ | EV_CUSTOM);
@@ -550,6 +564,7 @@ static inline tcp_context_t* get_tcpctx_by_watcher(evio_t *watcher) {
 static inline void tcp_context_release(evloop_t *evloop, tcp_context_t *context, bool is_tcp_reset) {
     evio_t *client_watcher = &context->client_watcher;
     evio_t *socks5_watcher = &context->socks5_watcher;
+    ev_timer_stop(evloop, &context->handshake_timer);
     ev_io_stop(evloop, client_watcher);
     ev_io_stop(evloop, socks5_watcher);
     if (is_tcp_reset) {
@@ -727,9 +742,21 @@ static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *socks5_watche
     new_nonblock_pipefd(context->client_pipefd);
     new_nonblock_pipefd(context->socks5_pipefd);
 
+    ev_timer_stop(evloop, &context->handshake_timer);
     ev_io_start(evloop, &context->client_watcher);
     ev_set_cb(socks5_watcher, tcp_stream_payload_forward_cb);
     IF_VERBOSE LOGINF("[tcp_socks5_recv_proxyresp_cb] tunnel is ready, start forwarding ...");
+}
+
+static void tcp_handshake_timeout_cb(evloop_t *evloop, evtimer_t *timer, int revents __attribute__((unused))) {
+    tcp_context_t *context = (void *)timer - offsetof(tcp_context_t, handshake_timer);
+    evio_cb_t cb = ev_cb(&context->socks5_watcher);
+    const char *stage = cb == tcp_socks5_connect_cb ? "connect"
+                      : cb == tcp_socks5_recv_authresp_cb ? "auth response"
+                      : cb == tcp_socks5_recv_usrpwdresp_cb ? "usrpwd response"
+                      : cb == tcp_socks5_recv_proxyresp_cb ? "proxy response" : "request sent";
+    LOGERR("[tcp_handshake_timeout_cb] %s#%hu: no %s in %hus, reset", g_server_ipstr, g_server_portno, stage, g_tcp_handshake_timeout_sec);
+    tcp_context_release(evloop, context, true);
 }
 
 static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher, int revents) {
