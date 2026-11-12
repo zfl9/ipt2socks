@@ -741,6 +741,15 @@ static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *self_watcher
         int *self_pipefd = self_is_client ? context->client_pipefd : context->socks5_pipefd;
         ssize_t nrecv = splice(self_watcher->fd, NULL, self_pipefd[1], NULL, TCP_SPLICE_MAXLEN, SPLICE_F_MOVE | SPLICE_F_NONBLOCK);
         if (nrecv < 0) {
+            if (errno == EPIPE) {
+                /* MPTCP returns EPIPE where TCP returns 0: the peer's FIN (DATA_FIN) arrived in
+                 * order and the connection was reset after it (MP_FASTCLOSE), and the receive
+                 * queue is now empty. The stream is complete, so close gracefully: a RST would
+                 * drop the data still queued for the other side. */
+                IF_VERBOSE LOGINF("[tcp_stream_payload_forward_cb] recv EPIPE (FIN, then reset) from %s stream, release ctx", self_is_client ? "client" : "socks5");
+                tcp_context_release(evloop, context, false);
+                return;
+            }
             if (errno != EAGAIN && errno != EWOULDBLOCK) {
                 LOGERR("[tcp_stream_payload_forward_cb] recv from %s stream: %s", self_is_client ? "client" : "socks5", strerror(errno));
                 tcp_context_release(evloop, context, true);
