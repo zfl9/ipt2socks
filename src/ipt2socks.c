@@ -62,6 +62,43 @@ typedef struct {
 
 static void* run_event_loop(void *is_main_thread);
 
+/* Warm connection pool (-e). Each worker thread keeps up to g_pool_size / nthreads
+ * connections to the socks5 server with the TCP handshake done and nothing sent;
+ * a new client takes one and its handshake starts at once, saving the round trip
+ * of the TCP handshake. Nothing is sent in advance: a server may close a connection
+ * that stopped in the middle of the socks5 handshake (xray: ~60 s), while one that
+ * sent nothing lives longer. The pool is refilled by a timer, POOL_RATE connections
+ * a second in all threads (no bursts; under load each warm connection replaces a
+ * connect the client would make anyway). A warm connection lives POOL_TTL s, is
+ * dropped as soon as the server closes it (EV_READ) and is checked with MSG_PEEK
+ * before use. Three failed connects in a row pause the pool for 10 s. An empty pool
+ * means the usual path. Not used with -W (TFO). */
+#define POOL_RATE        10. /* new connections per second, all threads */
+#define POOL_TTL         120. /* s */
+#define POOL_CONNECT_MAX 3.  /* s, connect deadline of a warm connection */
+
+typedef struct pool_conn {
+    evio_t            watcher;     /* .data: pool_conn; EV_WRITE while connecting, then EV_READ */
+    evtimer_t         timer;       /* connect deadline, then the TTL */
+    bool              ready;
+    struct pool_conn *prev, *next; /* ready list, oldest first */
+} pool_conn_t;
+
+typedef struct {
+    unsigned     size;             /* per thread */
+    unsigned     nready, npending, nfail;
+    pool_conn_t *head, *tail;
+    evtimer_t    refill, stats;
+    double       pause_until;
+    unsigned     hits, misses, expired, dead, failed;
+} pool_t;
+
+static __thread pool_t *t_pool = NULL;
+static unsigned g_pool_size = 0; /* all threads, 0: off */
+
+static void pool_init(evloop_t *evloop);
+static int  pool_take(evloop_t *evloop);
+
 static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_socks5_connect_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_socks5_send_authreq_cb(evloop_t *evloop, evio_t *watcher, int revents);
@@ -129,6 +166,7 @@ static void print_command_help(void) {
            " -r, --reuse-port                   enable so_reuseport for single thread\n"
            " -w, --tfo-accept                   enable tcp_fastopen for server socket\n"
            " -W, --tfo-connect                  enable tcp_fastopen for client socket\n"
+           " -e, --pool-size <num>              warm connections to the socks5 server, default: 0\n"
            " -v, --verbose                      print verbose log, affect performance\n"
            " -V, --version                      print ipt2socks version number and exit\n"
            " -h, --help                         print ipt2socks help information and exit\n"
@@ -137,7 +175,7 @@ static void print_command_help(void) {
 
 static void parse_command_args(int argc, char* argv[]) {
     opterr = 0; /* disable errmsg print, can get error by retval '?' */
-    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWvVh";
+    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:e:TU46RrwWvVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -152,6 +190,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"thread-nums",   required_argument, NULL, 'j'},
         {"nofile-limit",  required_argument, NULL, 'n'},
         {"run-user",      required_argument, NULL, 'u'},
+        {"pool-size",     required_argument, NULL, 'e'},
         {"tcp-only",      no_argument,       NULL, 'T'},
         {"udp-only",      no_argument,       NULL, 'U'},
         {"ipv4-only",     no_argument,       NULL, '4'},
@@ -247,6 +286,9 @@ static void parse_command_args(int argc, char* argv[]) {
                     printf("[parse_command_args] invalid number of syn retransmits: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
+                break;
+            case 'e':
+                g_pool_size = strtoul(optarg, NULL, 10);
                 break;
             case 'c':
                 if (strtoul(optarg, NULL, 10) == 0) {
@@ -378,6 +420,9 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ALWAYS_REUSE_PORT) LOGINF("[main] always enable reuseport feature");
     if (g_options & OPT_ENABLE_TFO_ACCEPT) LOGINF("[main] enable tfo for tcp server socket");
     if (g_options & OPT_ENABLE_TFO_CONNECT) LOGINF("[main] enable tfo for tcp client socket");
+    if (!(g_options & OPT_ENABLE_TCP) || (g_options & OPT_ENABLE_TFO_CONNECT)) g_pool_size = 0;
+    if (g_pool_size) LOGINF("[main] warm pool: %u connections (%u per thread), refill up to %.0f/s, ttl %.0fs",
+                            g_pool_size, (g_pool_size + g_nthreads - 1) / g_nthreads, POOL_RATE, POOL_TTL);
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
@@ -393,6 +438,7 @@ int main(int argc, char* argv[]) {
 
 static void* run_event_loop(void *is_main_thread) {
     evloop_t *evloop = ev_loop_new(0);
+    if (g_pool_size) pool_init(evloop);
 
     if (g_options & OPT_ENABLE_TCP) {
         bool is_tproxy = !(g_options & OPT_TCP_USE_REDIRECT);
@@ -495,19 +541,23 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
         LOGINF("[tcp_tproxy_accept_cb] target socket address: %s#%hu", ipstr, portno);
     }
 
-    int socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
+    int socks5_sockfd = t_pool ? pool_take(evloop) : -1;
+    bool pooled = socks5_sockfd >= 0;
+    if (!pooled) socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
     const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? &g_socks5_auth_request : NULL;
     uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? sizeof(socks5_authreq_t) : 0;
     ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
 
-    if (!tcp_connect(socks5_sockfd, &g_server_skaddr, tfo_data, tfo_datalen, &tfo_nsend)) {
+    if (!pooled && !tcp_connect(socks5_sockfd, &g_server_skaddr, tfo_data, tfo_datalen, &tfo_nsend)) {
         LOGERR("[tcp_tproxy_accept_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
         tcp_close_by_rst(client_sockfd);
         close(socks5_sockfd);
         return;
     }
     IF_VERBOSE {
-        if (tfo_nsend >= 0) {
+        if (pooled) {
+            LOGINF("[tcp_tproxy_accept_cb] warm connection to %s#%hu", g_server_ipstr, g_server_portno);
+        } else if (tfo_nsend >= 0) {
             LOGINF("[tcp_tproxy_accept_cb] tfo send to %s#%hu, nsend:%zd", g_server_ipstr, g_server_portno, tfo_nsend);
         } else {
             LOGINF("[tcp_tproxy_accept_cb] try to connect to %s#%hu ...", g_server_ipstr, g_server_portno);
@@ -526,7 +576,10 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     socks5_proxy_request_make(context->client_watcher.data, &skaddr);
 
     watcher = &context->socks5_watcher;
-    if (tfo_nsend >= 0 && (size_t)tfo_nsend >= tfo_datalen) {
+    if (pooled) {
+        ev_io_init(watcher, tcp_socks5_send_authreq_cb, socks5_sockfd, EV_WRITE);
+        tfo_nsend = 0;
+    } else if (tfo_nsend >= 0 && (size_t)tfo_nsend >= tfo_datalen) {
         ev_io_init(watcher, tcp_socks5_recv_authresp_cb, socks5_sockfd, EV_READ);
         tfo_nsend = 0; /* reset to zero for next send */
     } else {
@@ -537,6 +590,8 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
 
     context->socks5_watcher.data = malloc(sizeof(socks5_ipv6resp_t));
     context->socks5_length = (size_t)tfo_nsend;
+
+    if (pooled) ev_invoke(evloop, watcher, EV_WRITE); /* already connected: send the request now; may release ctx */
 }
 
 static inline tcp_context_t* get_tcpctx_by_watcher(evio_t *watcher) {
@@ -1295,4 +1350,139 @@ static void udp_tproxy_context_timeout_cb(evloop_t *evloop, evtimer_t *idle_time
     ev_timer_stop(evloop, idle_timer);
     close(context->udp_sockfd);
     free(context);
+}
+
+/* ------------------------------ warm connection pool ------------------------------ */
+
+static void pool_io_cb(evloop_t *evloop, evio_t *watcher, int revents);
+static void pool_timer_cb(evloop_t *evloop, evtimer_t *timer, int revents);
+static void pool_refill_cb(evloop_t *evloop, evtimer_t *timer, int revents);
+static void pool_stats_cb(evloop_t *evloop, evtimer_t *timer, int revents);
+
+static void pool_init(evloop_t *evloop) {
+    t_pool = calloc(1, sizeof(*t_pool));
+    t_pool->size = (g_pool_size + g_nthreads - 1) / g_nthreads;
+    double interval = g_nthreads / POOL_RATE; /* per thread */
+    ev_timer_init(&t_pool->refill, pool_refill_cb, interval, interval);
+    ev_timer_start(evloop, &t_pool->refill);
+    ev_timer_init(&t_pool->stats, pool_stats_cb, 600., 600.);
+    ev_timer_start(evloop, &t_pool->stats);
+}
+
+static void pool_unlink(pool_conn_t *pc) {
+    if (pc->prev) pc->prev->next = pc->next; else t_pool->head = pc->next;
+    if (pc->next) pc->next->prev = pc->prev; else t_pool->tail = pc->prev;
+    pc->prev = pc->next = NULL;
+    --t_pool->nready;
+}
+
+/* close and forget a pool connection */
+static void pool_free(evloop_t *evloop, pool_conn_t *pc) {
+    if (pc->ready) pool_unlink(pc); else --t_pool->npending;
+    ev_io_stop(evloop, &pc->watcher);
+    ev_timer_stop(evloop, &pc->timer);
+    close(pc->watcher.fd);
+    free(pc);
+}
+
+static void pool_failed(evloop_t *evloop, pool_conn_t *pc, const char *why) {
+    ++t_pool->failed;
+    if (++t_pool->nfail >= 3) {
+        t_pool->pause_until = ev_now(evloop) + 10;
+        t_pool->nfail = 0;
+        LOGERR("[pool] connect to %s#%hu failed 3 times in a row (%s), pausing 10s", g_server_ipstr, g_server_portno, why);
+    }
+    pool_free(evloop, pc);
+}
+
+static void pool_open(evloop_t *evloop) {
+    int sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
+    if (sockfd < 0) return;
+    if (!tcp_connect(sockfd, &g_server_skaddr, NULL, 0, NULL)) {
+        LOGERR("[pool] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
+        close(sockfd);
+        ++t_pool->failed;
+        return;
+    }
+    pool_conn_t *pc = calloc(1, sizeof(*pc));
+    ev_io_init(&pc->watcher, pool_io_cb, sockfd, EV_WRITE);
+    pc->watcher.data = pc;
+    ev_io_start(evloop, &pc->watcher);
+    ev_timer_init(&pc->timer, pool_timer_cb, POOL_CONNECT_MAX, 0.);
+    pc->timer.data = pc;
+    ev_timer_start(evloop, &pc->timer);
+    ++t_pool->npending;
+}
+
+static void pool_refill_cb(evloop_t *evloop, evtimer_t *timer __attribute__((unused)), int revents __attribute__((unused))) {
+    if (t_pool->nready + t_pool->npending >= t_pool->size || ev_now(evloop) < t_pool->pause_until) return;
+    pool_open(evloop);
+}
+
+static void pool_io_cb(evloop_t *evloop, evio_t *watcher, int revents __attribute__((unused))) {
+    pool_conn_t *pc = watcher->data;
+    if (pc->ready) { /* readable while idle: the server closed it (or sent something it should not) */
+        ++t_pool->dead;
+        pool_free(evloop, pc);
+        return;
+    }
+    if (tcp_has_error(watcher->fd)) {
+        IF_VERBOSE LOGINF("[pool] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
+        pool_failed(evloop, pc, strerror(errno));
+        return;
+    }
+    --t_pool->npending;
+    ++t_pool->nready;
+    t_pool->nfail = 0;
+    pc->ready = true;
+    pc->prev = t_pool->tail;
+    if (t_pool->tail) t_pool->tail->next = pc; else t_pool->head = pc;
+    t_pool->tail = pc;
+    ev_io_stop(evloop, watcher);
+    ev_io_set(watcher, watcher->fd, EV_READ);
+    ev_io_start(evloop, watcher);
+    ev_timer_stop(evloop, &pc->timer);
+    ev_timer_set(&pc->timer, POOL_TTL, 0.);
+    ev_timer_start(evloop, &pc->timer);
+}
+
+static void pool_timer_cb(evloop_t *evloop, evtimer_t *timer, int revents __attribute__((unused))) {
+    pool_conn_t *pc = timer->data;
+    if (pc->ready) {
+        ++t_pool->expired;
+        pool_free(evloop, pc);
+        return;
+    }
+    pool_failed(evloop, pc, "connect timeout");
+}
+
+/* a warm connection, or -1 */
+static int pool_take(evloop_t *evloop) {
+    while (t_pool->head) {
+        pool_conn_t *pc = t_pool->head;
+        int sockfd = pc->watcher.fd;
+        char c;
+        ssize_t n = recv(sockfd, &c, 1, MSG_PEEK | MSG_DONTWAIT);
+        if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK) && !tcp_has_error(sockfd)) {
+            pool_unlink(pc);
+            ev_io_stop(evloop, &pc->watcher);
+            ev_timer_stop(evloop, &pc->timer);
+            free(pc);
+            ++t_pool->hits;
+            return sockfd;
+        }
+        ++t_pool->dead; /* closed, reset or unexpected data */
+        pool_free(evloop, pc);
+    }
+    ++t_pool->misses;
+    return -1;
+}
+
+static void pool_stats_cb(evloop_t *evloop __attribute__((unused)), evtimer_t *timer __attribute__((unused)), int revents __attribute__((unused))) {
+    pool_t *p = t_pool;
+    if (p->hits || p->misses || p->failed) {
+        LOGINF("[pool] last 10 min: %u clients got a warm connection, %u did not; %u expired, %u closed by the server, %u connects failed; ready %u/%u",
+               p->hits, p->misses, p->expired, p->dead, p->failed, p->nready, p->size);
+    }
+    p->hits = p->misses = p->expired = p->dead = p->failed = 0;
 }
