@@ -70,6 +70,7 @@ usage: ipt2socks <options...>. the existing options are as follows:
  -r, --reuse-port                   enable so_reuseport for single thread
  -w, --tfo-accept                   enable tcp_fastopen for server socket
  -W, --tfo-connect                  enable tcp_fastopen for client socket
+ -e, --pool-size <num>              warm connections to the socks5 server, default: 0
  -v, --verbose                      print verbose log, affect performance
  -V, --version                      print ipt2socks version number and exit
  -h, --help                         print ipt2socks help information and exit
