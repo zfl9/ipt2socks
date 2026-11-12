@@ -53,7 +53,7 @@ void parse_socket_addr(const void *skaddr, char *ipstr, portno_t *portno);
 void new_nonblock_pipefd(int pipefd[2]); /* pipefd[0]: read end, pipefd[1]: write end */
 
 int new_tcp_listen_sockfd(int family, bool is_tproxy, bool is_reuse_port, bool is_tfo_accept);
-int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt);
+int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt, bool use_mptcp);
 
 int new_udp_tprecv_sockfd(int family);
 int new_udp_tpsend_sockfd(int family);
