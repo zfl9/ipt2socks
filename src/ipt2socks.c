@@ -49,6 +49,7 @@ enum {
     OPT_ALWAYS_REUSE_PORT  = 0x01 << 5, // always enable so_reuseport (since linux 3.9+)
     OPT_ENABLE_TFO_ACCEPT  = 0x01 << 6, // enable tcp_fastopen for listen socket (server tfo)
     OPT_ENABLE_TFO_CONNECT = 0x01 << 7, // enable tcp_fastopen for connect socket (client tfo)
+    OPT_ENABLE_MPTCP       = 0x01 << 8, // use mptcp for the connections to the socks5 server
 };
 
 typedef struct {
@@ -129,6 +130,7 @@ static void print_command_help(void) {
            " -r, --reuse-port                   enable so_reuseport for single thread\n"
            " -w, --tfo-accept                   enable tcp_fastopen for server socket\n"
            " -W, --tfo-connect                  enable tcp_fastopen for client socket\n"
+           " -M, --mptcp                        use mptcp to connect to the socks5 server\n"
            " -v, --verbose                      print verbose log, affect performance\n"
            " -V, --version                      print ipt2socks version number and exit\n"
            " -h, --help                         print ipt2socks help information and exit\n"
@@ -137,7 +139,7 @@ static void print_command_help(void) {
 
 static void parse_command_args(int argc, char* argv[]) {
     opterr = 0; /* disable errmsg print, can get error by retval '?' */
-    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWvVh";
+    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWMvVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -160,6 +162,7 @@ static void parse_command_args(int argc, char* argv[]) {
         {"reuse-port",    no_argument,       NULL, 'r'},
         {"tfo-accept",    no_argument,       NULL, 'w'},
         {"tfo-connect",   no_argument,       NULL, 'W'},
+        {"mptcp",         no_argument,       NULL, 'M'},
         {"verbose",       no_argument,       NULL, 'v'},
         {"version",       no_argument,       NULL, 'V'},
         {"help",          no_argument,       NULL, 'h'},
@@ -301,6 +304,9 @@ static void parse_command_args(int argc, char* argv[]) {
             case 'W':
                 g_options |= OPT_ENABLE_TFO_CONNECT;
                 break;
+            case 'M':
+                g_options |= OPT_ENABLE_MPTCP;
+                break;
             case 'v':
                 g_verbose = true;
                 break;
@@ -378,6 +384,7 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ALWAYS_REUSE_PORT) LOGINF("[main] always enable reuseport feature");
     if (g_options & OPT_ENABLE_TFO_ACCEPT) LOGINF("[main] enable tfo for tcp server socket");
     if (g_options & OPT_ENABLE_TFO_CONNECT) LOGINF("[main] enable tfo for tcp client socket");
+    if (g_options & OPT_ENABLE_MPTCP) LOGINF("[main] use mptcp to connect to the socks5 server");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
@@ -495,7 +502,7 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
         LOGINF("[tcp_tproxy_accept_cb] target socket address: %s#%hu", ipstr, portno);
     }
 
-    int socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
+    int socks5_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max, g_options & OPT_ENABLE_MPTCP);
     const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? &g_socks5_auth_request : NULL;
     uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? sizeof(socks5_authreq_t) : 0;
     ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */
@@ -866,7 +873,7 @@ static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *tprecv_watcher, int 
 
     udp_socks5ctx_t *context = udp_socks5ctx_get(&g_udp_socks5ctx_table, &key_ipport);
     if (!context) {
-        int tcp_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max);
+        int tcp_sockfd = new_tcp_connect_sockfd(g_server_skaddr.sin6_family, g_tcp_syncnt_max, g_options & OPT_ENABLE_MPTCP);
         const void *tfo_data = (g_options & OPT_ENABLE_TFO_CONNECT) ? &g_socks5_auth_request : NULL;
         uint16_t tfo_datalen = (g_options & OPT_ENABLE_TFO_CONNECT) ? sizeof(socks5_authreq_t) : 0;
         ssize_t tfo_nsend = -1; /* if tfo connect succeed: tfo_nsend >= 0 */

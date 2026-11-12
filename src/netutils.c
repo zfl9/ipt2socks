@@ -33,6 +33,10 @@
   #define IP_TRANSPARENT 19
 #endif
 
+#ifndef IPPROTO_MPTCP
+  #define IPPROTO_MPTCP 262
+#endif
+
 #ifndef IPV6_TRANSPARENT
   #define IPV6_TRANSPARENT 75
 #endif
@@ -295,12 +299,39 @@ int new_tcp_listen_sockfd(int family, bool is_tproxy, bool is_reuse_port, bool i
     return sockfd;
 }
 
-int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt) {
-    int sockfd = new_nonblock_sockfd(family, SOCK_STREAM);
+/* With use_mptcp the connection uses Multipath TCP (IPPROTO_MPTCP). If the kernel
+ * has no MPTCP (EPROTONOSUPPORT) or it is disabled (net.mptcp.enabled=0: ENOPROTOOPT),
+ * this and every later connection is plain TCP. MPTCP sockets reject TCP_QUICKACK
+ * and TCP_SYNCNT (ENOPROTOOPT), so these are only set on plain TCP sockets. */
+static bool g_mptcp_unavailable = false;
+
+static inline int new_nonblock_connect_sockfd(int family, bool use_mptcp, bool *is_mptcp) {
+    *is_mptcp = false;
+    if (use_mptcp && !g_mptcp_unavailable) {
+        int sockfd = socket(family, SOCK_STREAM, IPPROTO_MPTCP);
+        if (sockfd >= 0) {
+            set_non_block(sockfd);
+            if (family == AF_INET6) set_ipv6_only(sockfd);
+            set_reuse_addr(sockfd);
+            *is_mptcp = true;
+            return sockfd;
+        }
+        if (errno == EPROTONOSUPPORT || errno == ENOPROTOOPT || errno == EINVAL || errno == EAFNOSUPPORT) {
+            LOGINF("[new_tcp_connect_sockfd] socket(IPPROTO_MPTCP): %s, using TCP", strerror(errno));
+            g_mptcp_unavailable = true;
+        }
+    }
+    return new_nonblock_sockfd(family, SOCK_STREAM);
+}
+
+int new_tcp_connect_sockfd(int family, uint8_t tcp_syncnt, bool use_mptcp) {
+    bool is_mptcp;
+    int sockfd = new_nonblock_connect_sockfd(family, use_mptcp, &is_mptcp);
+    if (sockfd < 0) return -1;
     set_tcp_nodelay(sockfd);
-    set_tcp_quickack(sockfd);
+    if (!is_mptcp) set_tcp_quickack(sockfd);
     set_tcp_keepalive(sockfd);
-    if (tcp_syncnt) set_tcp_syncnt(sockfd, tcp_syncnt);
+    if (tcp_syncnt && !is_mptcp) set_tcp_syncnt(sockfd, tcp_syncnt);
     return sockfd;
 }
 
