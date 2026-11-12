@@ -15,6 +15,8 @@
 #define IP6STRLEN INET6_ADDRSTRLEN
 #define PORTSTRLEN 6
 
+#define IFNAMSIZ_ 16 /* IFNAMSIZ without <net/if.h> */
+
 #define IP4STR_LOOPBACK "127.0.0.1"
 #define IP4STR_WILDCARD "0.0.0.0"
 #define IP6STR_LOOPBACK "::1"
@@ -73,5 +75,25 @@ bool tcp_has_error(int sockfd);
 
 /* set so_linger(delay=0) and call close(sockfd) */
 void tcp_close_by_rst(int sockfd);
+
+/* connect failover: IPv4 uplinks the server can be reached through */
+#define UPLINK_MAXCNT 8
+typedef struct {
+    ipaddr4_t addr;              /* source address (network byte order) */
+    char      ifname[IFNAMSIZ_]; /* interface holding the address */
+} uplink4_t;
+
+/* spec: NULL or "" = every interface address, else a list of IPv4 addresses
+ * and/or interface names separated by ',' or ' '. An address counts as an
+ * uplink only if the route from it to the server leaves through the interface
+ * that holds it (so it needs a "from <addr> lookup <table>" policy rule when
+ * there are several uplinks). return: number of uplinks written to out */
+int get_ipv4_uplinks(const skaddr4_t *server, const char *spec, uplink4_t *out, int maxcnt);
+
+/* bind to the given source address, port chosen at connect (IP_BIND_ADDRESS_NO_PORT) */
+bool bind_ipv4_source(int sockfd, ipaddr4_t addr);
+
+/* source address of a connecting/connected ipv4 socket, 0 if unknown */
+ipaddr4_t get_ipv4_source(int sockfd);
 
 #endif

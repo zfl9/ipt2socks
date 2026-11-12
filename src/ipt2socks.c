@@ -20,6 +20,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <time.h>
 
 /* splice() api */
 #ifndef SPLICE_F_MOVE
@@ -58,7 +59,48 @@ typedef struct {
     int      socks5_pipefd[2]; // socks5 pipe buffer
     uint16_t client_length;    // nrecv/nsend, npipe
     uint16_t socks5_length;    // nrecv/nsend, npipe
+    struct fo_race *race;      // connect failover, while connecting to the socks5 server
 } tcp_context_t;
+
+/* Connect failover (-F). The connection to the socks5 server starts as usual
+ * (kernel routing). If it is not connected after the failover delay, a second
+ * attempt is started in parallel from the source address of another uplink, then
+ * the next one after another delay (Happy Eyeballs style); the first attempt to
+ * connect is used, the rest are closed. Nothing is aborted by timeout, so with no
+ * uplink answering it behaves as before. An uplink that lost this way is kept as
+ * slow for FO_HOLD s: new connections through it start the alternative at once,
+ * and its own attempt is kept as a probe for up to the delay (connected: the
+ * uplink is fine again). Uplinks: IPv4 addresses whose route to the server leaves
+ * through their own interface (a "from <addr> lookup <table>" policy rule),
+ * optionally limited by -f (addresses and/or interface names). Only a bind() to
+ * the source address is used, not SO_BINDTODEVICE: with MPTCP that would be
+ * copied to every subflow. */
+#define FO_ALT_MAXCNT 4
+#define FO_HOLD       20. /* s, how long an uplink that lost a race is kept as slow */
+
+typedef struct fo_race {
+    evtimer_t timer;                  /* next alternate attempt, .data: tcp context */
+    double    start;                  /* monotonic time the main attempt started */
+    ipaddr4_t main_src;               /* source address of the main attempt, 0: unknown */
+    bool      main_alive;             /* main attempt (socks5_watcher) still connecting */
+    int       main_err;               /* errno of the failed main attempt */
+    uint8_t   nalt;                   /* alternate attempts made (alt_src: tried uplinks) */
+    uint8_t   nalive;                 /* alternate attempts still connecting */
+    evio_t    alt[FO_ALT_MAXCNT];     /* .data: tcp context, .fd -1: not connecting */
+    ipaddr4_t alt_src[FO_ALT_MAXCNT];
+} fo_race_t;
+
+typedef struct {
+    evio_t    watcher;                /* .data: probe */
+    evtimer_t timer;                  /* .data: probe */
+    ipaddr4_t src;
+} fo_probe_t;
+
+typedef struct {
+    ipaddr4_t src;
+    double    until;                  /* monotonic */
+    uint32_t  nalt;                   /* connections that went elsewhere meanwhile */
+} fo_slow_t;
 
 static void* run_event_loop(void *is_main_thread);
 
@@ -71,6 +113,11 @@ static void tcp_socks5_recv_usrpwdresp_cb(evloop_t *evloop, evio_t *watcher, int
 static void tcp_socks5_send_proxyreq_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_socks5_recv_proxyresp_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void tcp_stream_payload_forward_cb(evloop_t *evloop, evio_t *watcher, int revents);
+
+static void fo_race_start(evloop_t *evloop, tcp_context_t *context);
+static void fo_race_free(evloop_t *evloop, tcp_context_t *context);
+static bool fo_main_failed(evloop_t *evloop, tcp_context_t *context, int err);
+static void fo_main_won(evloop_t *evloop, tcp_context_t *context);
 
 static void udp_tproxy_recvmsg_cb(evloop_t *evloop, evio_t *watcher, int revents);
 static void udp_socks5_connect_cb(evloop_t *evloop, evio_t *watcher, int revents);
@@ -101,6 +148,16 @@ static skaddr6_t g_server_skaddr           = {0};
 
 static uint8_t g_tcp_syncnt_max = 0; // 0: use default syncnt
 
+static bool            g_fo_enabled = false;
+static double          g_fo_delay   = 0;       /* -F (ms, stored in s), 0: failover off */
+static const double    g_fo_hold    = FO_HOLD; /* s */
+static const char     *g_fo_spec    = NULL;    /* -f */
+static fo_slow_t       g_fo_slow[UPLINK_MAXCNT];
+static pthread_mutex_t g_fo_lock    = PTHREAD_MUTEX_INITIALIZER;
+static __thread uplink4_t t_fo_uplinks[UPLINK_MAXCNT];
+static __thread int       t_fo_nuplinks = -1; /* -1: not read yet */
+static __thread double    t_fo_uplinks_time = -1e9;
+
 static uint16_t         g_udp_idletimeout_sec                   = 60;
 static udp_socks5ctx_t *g_udp_socks5ctx_table                   = NULL;
 static udp_tproxyctx_t *g_udp_tproxyctx_table                   = NULL;
@@ -116,6 +173,8 @@ static void print_command_help(void) {
            " -B, --listen-addr6 <addr>          listen ipv6 address, default: ::1\n"
            " -l, --listen-port <port>           listen port number, default: 60080\n"
            " -S, --tcp-syncnt <cnt>             change the number of tcp syn retransmits\n"
+           " -F, --failover <ms>                try other uplinks if not connected in <ms>\n"
+           " -f, --uplinks <list>               failover uplinks (ips/ifnames), default: auto\n"
            " -c, --cache-size <size>            udp context cache maxsize, default: 256\n"
            " -o, --udp-timeout <sec>            udp context idle timeout, default: 60\n"
            " -j, --thread-nums <num>            number of the worker threads, default: 1\n"
@@ -137,7 +196,7 @@ static void print_command_help(void) {
 
 static void parse_command_args(int argc, char* argv[]) {
     opterr = 0; /* disable errmsg print, can get error by retval '?' */
-    const char *optstr = ":s:p:a:k:b:B:l:S:c:o:j:n:u:TU46RrwWvVh";
+    const char *optstr = ":s:p:a:k:b:B:l:S:F:f:c:o:j:n:u:TU46RrwWvVh";
     const struct option options[] = {
         {"server-addr",   required_argument, NULL, 's'},
         {"server-port",   required_argument, NULL, 'p'},
@@ -147,6 +206,8 @@ static void parse_command_args(int argc, char* argv[]) {
         {"listen-addr6",  required_argument, NULL, 'B'},
         {"listen-port",   required_argument, NULL, 'l'},
         {"tcp-syncnt",    required_argument, NULL, 'S'},
+        {"failover",      required_argument, NULL, 'F'},
+        {"uplinks",       required_argument, NULL, 'f'},
         {"cache-size",    required_argument, NULL, 'c'},
         {"udp-timeout",   required_argument, NULL, 'o'},
         {"thread-nums",   required_argument, NULL, 'j'},
@@ -247,6 +308,12 @@ static void parse_command_args(int argc, char* argv[]) {
                     printf("[parse_command_args] invalid number of syn retransmits: %s\n", optarg);
                     goto PRINT_HELP_AND_EXIT;
                 }
+                break;
+            case 'F':
+                g_fo_delay = strtoul(optarg, NULL, 10) / 1000.0;
+                break;
+            case 'f':
+                g_fo_spec = optarg;
                 break;
             case 'c':
                 if (strtoul(optarg, NULL, 10) == 0) {
@@ -359,6 +426,8 @@ PRINT_HELP_AND_EXIT:
     exit(1);
 }
 
+static void fo_init(void);
+
 int main(int argc, char* argv[]) {
     signal(SIGPIPE, SIG_IGN);
     setvbuf(stdout, NULL, _IOLBF, 256);
@@ -379,6 +448,7 @@ int main(int argc, char* argv[]) {
     if (g_options & OPT_ENABLE_TFO_ACCEPT) LOGINF("[main] enable tfo for tcp server socket");
     if (g_options & OPT_ENABLE_TFO_CONNECT) LOGINF("[main] enable tfo for tcp client socket");
     IF_VERBOSE LOGINF("[main] verbose mode (affect performance)");
+    fo_init();
 
     for (int i = 0; i < g_nthreads - 1; ++i) {
         if (pthread_create(&(pthread_t){0}, NULL, run_event_loop, NULL)) {
@@ -515,6 +585,7 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
     }
 
     tcp_context_t *context = malloc(sizeof(*context));
+    context->race = NULL;
 
     /* if (watcher->events & EV_CUSTOM); then it is client watcher; fi */
     evio_t *watcher = &context->client_watcher;
@@ -537,6 +608,8 @@ static void tcp_tproxy_accept_cb(evloop_t *evloop, evio_t *accept_watcher, int r
 
     context->socks5_watcher.data = malloc(sizeof(socks5_ipv6resp_t));
     context->socks5_length = (size_t)tfo_nsend;
+
+    if (g_fo_enabled && ev_cb(watcher) == tcp_socks5_connect_cb) fo_race_start(evloop, context);
 }
 
 static inline tcp_context_t* get_tcpctx_by_watcher(evio_t *watcher) {
@@ -550,14 +623,15 @@ static inline tcp_context_t* get_tcpctx_by_watcher(evio_t *watcher) {
 static inline void tcp_context_release(evloop_t *evloop, tcp_context_t *context, bool is_tcp_reset) {
     evio_t *client_watcher = &context->client_watcher;
     evio_t *socks5_watcher = &context->socks5_watcher;
+    if (context->race) fo_race_free(evloop, context);
     ev_io_stop(evloop, client_watcher);
     ev_io_stop(evloop, socks5_watcher);
     if (is_tcp_reset) {
         tcp_close_by_rst(client_watcher->fd);
-        tcp_close_by_rst(socks5_watcher->fd);
+        if (socks5_watcher->fd >= 0) tcp_close_by_rst(socks5_watcher->fd);
     } else {
         close(client_watcher->fd);
-        close(socks5_watcher->fd);
+        if (socks5_watcher->fd >= 0) close(socks5_watcher->fd);
     }
     if (client_watcher->data || socks5_watcher->data) {
         free(client_watcher->data);
@@ -572,11 +646,15 @@ static inline void tcp_context_release(evloop_t *evloop, tcp_context_t *context,
 }
 
 static void tcp_socks5_connect_cb(evloop_t *evloop, evio_t *socks5_watcher, int revents __attribute__((unused))) {
+    tcp_context_t *context = get_tcpctx_by_watcher(socks5_watcher);
     if (tcp_has_error(socks5_watcher->fd)) {
-        LOGERR("[tcp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(errno));
-        tcp_context_release(evloop, get_tcpctx_by_watcher(socks5_watcher), true);
+        int err = errno;
+        if (context->race && fo_main_failed(evloop, context, err)) return; /* other uplinks still trying */
+        LOGERR("[tcp_socks5_connect_cb] connect to %s#%hu: %s", g_server_ipstr, g_server_portno, strerror(err));
+        tcp_context_release(evloop, context, true);
         return;
     }
+    if (context->race) fo_main_won(evloop, context);
     IF_VERBOSE LOGINF("[tcp_socks5_connect_cb] connect to %s#%hu succeeded", g_server_ipstr, g_server_portno);
     ev_set_cb(socks5_watcher, tcp_socks5_send_authreq_cb);
     ev_invoke(evloop, socks5_watcher, EV_WRITE);
@@ -1295,4 +1373,302 @@ static void udp_tproxy_context_timeout_cb(evloop_t *evloop, evtimer_t *idle_time
     ev_timer_stop(evloop, idle_timer);
     close(context->udp_sockfd);
     free(context);
+}
+
+/* ------------------------------- connect failover ------------------------------- */
+
+static double fo_mono(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return ts.tv_sec + ts.tv_nsec / 1e9;
+}
+
+static const char* fo_ipstr(ipaddr4_t addr, char *buf) {
+    return inet_ntop(AF_INET, &addr, buf, IP4STRLEN) ? buf : "?";
+}
+
+static const char* fo_ifname(ipaddr4_t addr) {
+    for (int i = 0; i < t_fo_nuplinks; ++i) {
+        if (t_fo_uplinks[i].addr == addr) return t_fo_uplinks[i].ifname;
+    }
+    return "-";
+}
+
+static void fo_refresh_uplinks(bool force) {
+    double now = fo_mono();
+    if (!force && now - t_fo_uplinks_time < 2) return;
+    t_fo_uplinks_time = now;
+    uplink4_t list[UPLINK_MAXCNT] = {0};
+    int cnt = get_ipv4_uplinks((void *)&g_server_skaddr, g_fo_spec, list, UPLINK_MAXCNT);
+    if (cnt == t_fo_nuplinks && !memcmp(list, t_fo_uplinks, sizeof(list))) return;
+    memcpy(t_fo_uplinks, list, sizeof(list));
+    t_fo_nuplinks = cnt;
+    char msg[UPLINK_MAXCNT * (IP4STRLEN + IFNAMSIZ_ + 4) + 8] = "", ip[IP4STRLEN];
+    for (int i = 0; i < cnt; ++i) {
+        size_t len = strlen(msg);
+        snprintf(msg + len, sizeof(msg) - len, " %s(%s)", fo_ipstr(list[i].addr, ip), list[i].ifname);
+    }
+    LOGINF("[fo] uplinks to %s:%s", g_server_ipstr, cnt ? msg : " none");
+}
+
+/* return the slot of src, NULL if it is not marked slow; g_fo_lock held */
+static fo_slow_t* fo_slow_find(ipaddr4_t src, double now) {
+    for (int i = 0; i < UPLINK_MAXCNT; ++i) {
+        if (g_fo_slow[i].src == src && g_fo_slow[i].until > now) return &g_fo_slow[i];
+    }
+    return NULL;
+}
+
+static bool fo_is_slow(ipaddr4_t src) {
+    if (!src || g_fo_hold <= 0) return false;
+    pthread_mutex_lock(&g_fo_lock);
+    bool slow = fo_slow_find(src, fo_mono());
+    pthread_mutex_unlock(&g_fo_lock);
+    return slow;
+}
+
+/* src did not connect in time (or failed), via did */
+static void fo_mark_slow(ipaddr4_t src, ipaddr4_t via, double took) {
+    if (!src || g_fo_hold <= 0) return;
+    double now = fo_mono();
+    pthread_mutex_lock(&g_fo_lock);
+    fo_slow_t *slot = fo_slow_find(src, now);
+    bool is_new = !slot;
+    if (is_new) {
+        slot = &g_fo_slow[0]; /* reuse an expired or the oldest slot */
+        for (int i = 0; i < UPLINK_MAXCNT; ++i) {
+            if (g_fo_slow[i].src == src || g_fo_slow[i].until <= now) { slot = &g_fo_slow[i]; break; }
+            if (g_fo_slow[i].until < slot->until) slot = &g_fo_slow[i];
+        }
+        slot->src = src;
+        slot->nalt = 0;
+    }
+    slot->until = now + g_fo_hold;
+    ++slot->nalt;
+    pthread_mutex_unlock(&g_fo_lock);
+    if (is_new) {
+        char ip1[IP4STRLEN], ip2[IP4STRLEN];
+        LOGINF("[fo] %s (%s) did not connect in %.1fs, %s (%s) did: racing uplinks for new connections",
+               fo_ipstr(src, ip1), fo_ifname(src), took, fo_ipstr(via, ip2), fo_ifname(via));
+    }
+}
+
+/* a probe of a slow uplink: keep_slow extends the mark (if it is still set,
+ * i.e. no other connection got through meanwhile), else counts a connection
+ * that went via another uplink */
+static void fo_update_slow(ipaddr4_t src, bool keep_slow) {
+    if (!src || g_fo_hold <= 0) return;
+    double now = fo_mono();
+    pthread_mutex_lock(&g_fo_lock);
+    fo_slow_t *slot = fo_slow_find(src, now);
+    if (slot && keep_slow) slot->until = now + g_fo_hold;
+    if (slot && !keep_slow) ++slot->nalt;
+    pthread_mutex_unlock(&g_fo_lock);
+}
+
+static void fo_clear_slow(ipaddr4_t src) {
+    if (!src || g_fo_hold <= 0) return;
+    pthread_mutex_lock(&g_fo_lock);
+    fo_slow_t *slot = fo_slow_find(src, fo_mono());
+    uint32_t nalt = slot ? slot->nalt : 0;
+    if (slot) slot->until = 0;
+    pthread_mutex_unlock(&g_fo_lock);
+    if (slot) {
+        char ip[IP4STRLEN];
+        LOGINF("[fo] %s (%s) connects again (%u connections went via other uplinks)", fo_ipstr(src, ip), fo_ifname(src), nalt);
+    }
+}
+
+static void fo_init(void) {
+    if (g_fo_delay <= 0) return;
+    if (g_server_skaddr.sin6_family != AF_INET || (g_options & OPT_ENABLE_TFO_CONNECT) || !(g_options & OPT_ENABLE_TCP)) {
+        LOGINF("[main] connect failover: off (needs tcp, an ipv4 server and no tfo-connect)");
+        return;
+    }
+    g_fo_enabled = true;
+    LOGINF("[main] connect failover: next uplink after %.0fms, slow uplink kept %.0fs, uplinks: %s",
+           g_fo_delay * 1000, g_fo_hold, g_fo_spec ? g_fo_spec : "auto");
+    fo_refresh_uplinks(true);
+}
+
+static void fo_alt_connect_cb(evloop_t *evloop, evio_t *watcher, int revents);
+static void fo_timer_cb(evloop_t *evloop, evtimer_t *timer, int revents);
+
+/* start the next alternate attempt; return: true if one is connecting now */
+static bool fo_start_next(evloop_t *evloop, tcp_context_t *context) {
+    fo_race_t *race = context->race;
+    fo_refresh_uplinks(false);
+    if (race->main_alive && !race->main_src) race->main_src = get_ipv4_source(context->socks5_watcher.fd);
+
+    while (race->nalt < FO_ALT_MAXCNT) {
+        const uplink4_t *pick = NULL; /* untried uplinks, those not marked slow first */
+        for (int pass = 0; pass < 2 && !pick; ++pass) {
+            for (int i = 0; i < t_fo_nuplinks && !pick; ++i) {
+                const uplink4_t *uplink = &t_fo_uplinks[i];
+                bool tried = uplink->addr == race->main_src;
+                for (int j = 0; j < race->nalt; ++j) tried |= race->alt_src[j] == uplink->addr;
+                if (!tried && (pass || !fo_is_slow(uplink->addr))) pick = uplink;
+            }
+        }
+        if (!pick) return false;
+
+        int idx = race->nalt++;
+        evio_t *watcher = &race->alt[idx];
+        race->alt_src[idx] = pick->addr;
+        char ip[IP4STRLEN];
+        int sockfd = new_tcp_connect_sockfd(AF_INET, g_tcp_syncnt_max);
+        if (sockfd >= 0 && bind_ipv4_source(sockfd, pick->addr) && tcp_connect(sockfd, &g_server_skaddr, NULL, 0, NULL)) {
+            ev_io_init(watcher, fo_alt_connect_cb, sockfd, EV_WRITE);
+            watcher->data = context;
+            ev_io_start(evloop, watcher);
+            ++race->nalive;
+            ev_timer_stop(evloop, &race->timer);
+            ev_timer_set(&race->timer, g_fo_delay, 0);
+            ev_timer_start(evloop, &race->timer);
+            IF_VERBOSE LOGINF("[fo] connect to %s#%hu via %s (%s) after %.2fs", g_server_ipstr, g_server_portno,
+                              fo_ipstr(pick->addr, ip), pick->ifname, fo_mono() - race->start);
+            return true;
+        }
+        LOGERR("[fo] connect to %s#%hu via %s (%s): %s", g_server_ipstr, g_server_portno, fo_ipstr(pick->addr, ip), pick->ifname, strerror(errno));
+        if (sockfd >= 0) close(sockfd);
+        watcher->fd = -1;
+    }
+    return false;
+}
+
+static void fo_race_start(evloop_t *evloop, tcp_context_t *context) {
+    fo_race_t *race = malloc(sizeof(*race));
+    race->start = fo_mono();
+    race->main_src = get_ipv4_source(context->socks5_watcher.fd);
+    race->main_alive = true;
+    race->main_err = 0;
+    race->nalt = race->nalive = 0;
+    /* main attempt through an uplink known to be slow: race at once */
+    ev_timer_init(&race->timer, fo_timer_cb, fo_is_slow(race->main_src) ? 0. : g_fo_delay, 0.);
+    race->timer.data = context;
+    context->race = race;
+    ev_timer_start(evloop, &race->timer);
+}
+
+static void fo_race_free(evloop_t *evloop, tcp_context_t *context) {
+    fo_race_t *race = context->race;
+    ev_timer_stop(evloop, &race->timer);
+    for (int i = 0; i < race->nalt; ++i) {
+        if (race->alt[i].fd < 0) continue;
+        ev_io_stop(evloop, &race->alt[i]);
+        close(race->alt[i].fd); /* still in SYN_SENT: no RST needed */
+    }
+    free(race);
+    context->race = NULL;
+}
+
+static void fo_timer_cb(evloop_t *evloop, evtimer_t *timer, int revents __attribute__((unused))) {
+    fo_start_next(evloop, timer->data);
+}
+
+/* return: true if the connection is still being tried through other uplinks */
+static bool fo_main_failed(evloop_t *evloop, tcp_context_t *context, int err) {
+    fo_race_t *race = context->race;
+    evio_t *socks5_watcher = &context->socks5_watcher;
+    if (!race->main_src) race->main_src = get_ipv4_source(socks5_watcher->fd);
+    IF_VERBOSE {
+        char ip[IP4STRLEN];
+        LOGINF("[fo] connect via %s (%s): %s", fo_ipstr(race->main_src, ip), fo_ifname(race->main_src), strerror(err));
+    }
+    if (!race->nalive && !fo_start_next(evloop, context)) return false;
+    ev_io_stop(evloop, socks5_watcher);
+    close(socks5_watcher->fd);
+    socks5_watcher->fd = -1;
+    race->main_alive = false;
+    race->main_err = err;
+    return true;
+}
+
+static void fo_main_won(evloop_t *evloop, tcp_context_t *context) {
+    fo_race_t *race = context->race;
+    fo_clear_slow(race->main_src);
+    IF_VERBOSE if (race->nalt) {
+        char ip[IP4STRLEN];
+        LOGINF("[fo] connected via %s (%s) after %.2fs, %u other attempt(s) dropped", fo_ipstr(race->main_src, ip),
+               fo_ifname(race->main_src), fo_mono() - race->start, race->nalive);
+    }
+    fo_race_free(evloop, context);
+}
+
+static void fo_probe_end(evloop_t *evloop, fo_probe_t *probe, bool connected) {
+    ev_io_stop(evloop, &probe->watcher);
+    ev_timer_stop(evloop, &probe->timer);
+    if (connected) {
+        fo_clear_slow(probe->src);
+        tcp_close_by_rst(probe->watcher.fd);
+    } else {
+        fo_update_slow(probe->src, true);
+        close(probe->watcher.fd);
+    }
+    free(probe);
+}
+
+static void fo_probe_connect_cb(evloop_t *evloop, evio_t *watcher, int revents __attribute__((unused))) {
+    fo_probe_end(evloop, watcher->data, !tcp_has_error(watcher->fd));
+}
+
+static void fo_probe_timeout_cb(evloop_t *evloop, evtimer_t *timer, int revents __attribute__((unused))) {
+    fo_probe_end(evloop, timer->data, false);
+}
+
+/* keep the main attempt of a slow uplink connecting until its delay is over */
+static void fo_probe_start(evloop_t *evloop, int sockfd, ipaddr4_t src, double timeout) {
+    fo_probe_t *probe = malloc(sizeof(*probe));
+    probe->src = src;
+    ev_io_init(&probe->watcher, fo_probe_connect_cb, sockfd, EV_WRITE);
+    probe->watcher.data = probe;
+    ev_timer_init(&probe->timer, fo_probe_timeout_cb, timeout, 0.);
+    probe->timer.data = probe;
+    ev_io_start(evloop, &probe->watcher);
+    ev_timer_start(evloop, &probe->timer);
+}
+
+static void fo_alt_connect_cb(evloop_t *evloop, evio_t *watcher, int revents __attribute__((unused))) {
+    tcp_context_t *context = watcher->data;
+    fo_race_t *race = context->race;
+    ipaddr4_t src = race->alt_src[watcher - race->alt];
+    char ip1[IP4STRLEN], ip2[IP4STRLEN];
+
+    ev_io_stop(evloop, watcher);
+    int sockfd = watcher->fd;
+    watcher->fd = -1;
+    --race->nalive;
+
+    if (tcp_has_error(sockfd)) {
+        int err = errno;
+        close(sockfd);
+        IF_VERBOSE LOGINF("[fo] connect via %s (%s): %s", fo_ipstr(src, ip1), fo_ifname(src), strerror(err));
+        if (race->main_alive || race->nalive || fo_start_next(evloop, context)) return;
+        LOGERR("[tcp_socks5_connect_cb] connect to %s#%hu: %s (all uplinks failed)", g_server_ipstr, g_server_portno,
+               strerror(race->main_err ? race->main_err : err));
+        tcp_context_release(evloop, context, true);
+        return;
+    }
+
+    double took = fo_mono() - race->start;
+    evio_t *socks5_watcher = &context->socks5_watcher;
+    if (race->main_alive) {
+        ev_io_stop(evloop, socks5_watcher);
+        if (race->main_src && took < g_fo_delay) { /* raced at once: let it finish as a probe */
+            fo_update_slow(race->main_src, false);
+            fo_probe_start(evloop, socks5_watcher->fd, race->main_src, g_fo_delay - took);
+        } else {
+            fo_mark_slow(race->main_src, src, took);
+            close(socks5_watcher->fd);
+        }
+    } else {
+        fo_mark_slow(race->main_src, src, took);
+    }
+    IF_VERBOSE LOGINF("[fo] connected via %s (%s) after %.2fs instead of %s (%s)", fo_ipstr(src, ip1), fo_ifname(src),
+                      took, fo_ipstr(race->main_src, ip2), fo_ifname(race->main_src));
+    fo_race_free(evloop, context);
+
+    ev_io_init(socks5_watcher, tcp_socks5_send_authreq_cb, sockfd, EV_WRITE);
+    ev_io_start(evloop, socks5_watcher);
+    ev_invoke(evloop, socks5_watcher, EV_WRITE);
 }

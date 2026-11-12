@@ -12,6 +12,11 @@
 #include <sys/resource.h>
 #include <pwd.h>
 #include <grp.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <sys/time.h>
+#include <linux/netlink.h>
+#include <linux/rtnetlink.h>
 
 #ifndef PATH_MAX
   #define PATH_MAX 4096
@@ -31,6 +36,10 @@
 
 #ifndef IP_TRANSPARENT
   #define IP_TRANSPARENT 19
+#endif
+
+#ifndef IP_BIND_ADDRESS_NO_PORT
+  #define IP_BIND_ADDRESS_NO_PORT 24
 #endif
 
 #ifndef IPV6_TRANSPARENT
@@ -393,4 +402,115 @@ bool tcp_has_error(int sockfd) {
 void tcp_close_by_rst(int sockfd) {
     set_tcp_solinger0(sockfd);
     close(sockfd);
+}
+
+/* connect failover helpers ------------------------------------------------- */
+
+/* output interface of the route from src to dst (RTM_GETROUTE, as "ip route get
+ * <dst> from <src>"), 0 if there is no unicast route, -1 on netlink error */
+static int get_ipv4_route_oif(ipaddr4_t dst, ipaddr4_t src) {
+    int fd = socket(AF_NETLINK, SOCK_RAW | SOCK_CLOEXEC, NETLINK_ROUTE);
+    if (fd < 0) return -1;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &(struct timeval){.tv_sec = 0, .tv_usec = 200000}, sizeof(struct timeval));
+
+    struct {
+        struct nlmsghdr nh;
+        struct rtmsg    rt;
+        char            attrs[2 * RTA_SPACE(sizeof(ipaddr4_t))];
+    } req;
+    memset(&req, 0, sizeof(req));
+    req.nh.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+    req.nh.nlmsg_type = RTM_GETROUTE;
+    req.nh.nlmsg_flags = NLM_F_REQUEST;
+    req.nh.nlmsg_seq = 1;
+    req.rt.rtm_family = AF_INET;
+    req.rt.rtm_dst_len = 32;
+    req.rt.rtm_src_len = 32;
+    const ipaddr4_t addrs[2] = {dst, src};
+    const unsigned short types[2] = {RTA_DST, RTA_SRC};
+    for (int i = 0; i < 2; ++i) {
+        struct rtattr *rta = (void *)&req + NLMSG_ALIGN(req.nh.nlmsg_len);
+        rta->rta_type = types[i];
+        rta->rta_len = RTA_LENGTH(sizeof(ipaddr4_t));
+        memcpy(RTA_DATA(rta), &addrs[i], sizeof(ipaddr4_t));
+        req.nh.nlmsg_len = NLMSG_ALIGN(req.nh.nlmsg_len) + RTA_SPACE(sizeof(ipaddr4_t));
+    }
+
+    int oif = -1;
+    char buf[1024] __attribute__((aligned(NLMSG_ALIGNTO)));
+    if (send(fd, &req, req.nh.nlmsg_len, 0) < 0) goto OUT;
+    ssize_t len = recv(fd, buf, sizeof(buf), 0);
+    if (len < 0) goto OUT;
+    for (struct nlmsghdr *nh = (void *)buf; NLMSG_OK(nh, (size_t)len); nh = NLMSG_NEXT(nh, len)) {
+        if (nh->nlmsg_type == NLMSG_ERROR) {
+            oif = 0; /* no route (ENETUNREACH, EINVAL for a non-local source ...) */
+            break;
+        }
+        if (nh->nlmsg_type != RTM_NEWROUTE) continue;
+        struct rtmsg *rt = NLMSG_DATA(nh);
+        oif = 0;
+        if (rt->rtm_type != RTN_UNICAST) break;
+        int alen = RTM_PAYLOAD(nh);
+        for (struct rtattr *rta = RTM_RTA(rt); RTA_OK(rta, alen); rta = RTA_NEXT(rta, alen)) {
+            if (rta->rta_type == RTA_OIF) oif = *(int *)RTA_DATA(rta);
+        }
+        break;
+    }
+OUT:
+    close(fd);
+    return oif;
+}
+
+static bool uplink_spec_match(const char *spec, const char *ifname, ipaddr4_t addr) {
+    if (!spec || !*spec) return true;
+    char token[IP4STRLEN > IFNAMSIZ_ ? IP4STRLEN : IFNAMSIZ_];
+    for (const char *p = spec; *p;) {
+        size_t n = strcspn(p, ", ");
+        if (n && n < sizeof(token)) {
+            memcpy(token, p, n);
+            token[n] = 0;
+            ipaddr4_t a;
+            if (inet_pton(AF_INET, token, &a) == 1 ? a == addr : !strcmp(token, ifname)) return true;
+        }
+        p += n;
+        p += strspn(p, ", ");
+    }
+    return false;
+}
+
+int get_ipv4_uplinks(const skaddr4_t *server, const char *spec, uplink4_t *out, int maxcnt) {
+    struct ifaddrs *ifas = NULL;
+    if (getifaddrs(&ifas) < 0) {
+        LOGERR("[get_ipv4_uplinks] getifaddrs: %s", strerror(errno));
+        return 0;
+    }
+    int cnt = 0;
+    for (struct ifaddrs *ifa = ifas; ifa && cnt < maxcnt; ifa = ifa->ifa_next) {
+        if (!ifa->ifa_addr || ifa->ifa_addr->sa_family != AF_INET) continue;
+        if ((ifa->ifa_flags & IFF_LOOPBACK) || !(ifa->ifa_flags & IFF_UP)) continue;
+        ipaddr4_t addr = ((skaddr4_t *)ifa->ifa_addr)->sin_addr.s_addr;
+        if (!uplink_spec_match(spec, ifa->ifa_name, addr)) continue;
+        bool dup = false; /* one address per interface */
+        for (int i = 0; i < cnt; ++i) dup |= !strcmp(out[i].ifname, ifa->ifa_name);
+        if (dup) continue;
+        int oif = get_ipv4_route_oif(server->sin_addr.s_addr, addr);
+        if (oif <= 0 || (unsigned)oif != if_nametoindex(ifa->ifa_name)) continue;
+        out[cnt].addr = addr;
+        snprintf(out[cnt].ifname, sizeof(out[cnt].ifname), "%s", ifa->ifa_name);
+        ++cnt;
+    }
+    freeifaddrs(ifas);
+    return cnt;
+}
+
+bool bind_ipv4_source(int sockfd, ipaddr4_t addr) {
+    setsockopt(sockfd, IPPROTO_IP, IP_BIND_ADDRESS_NO_PORT, &(int){1}, sizeof(int));
+    skaddr4_t skaddr = {.sin_family = AF_INET, .sin_port = 0, .sin_addr = {.s_addr = addr}};
+    return bind(sockfd, (void *)&skaddr, sizeof(skaddr)) == 0;
+}
+
+ipaddr4_t get_ipv4_source(int sockfd) {
+    skaddr4_t skaddr = {0};
+    if (getsockname(sockfd, (void *)&skaddr, &(socklen_t){sizeof(skaddr)}) < 0 || skaddr.sin_family != AF_INET) return 0;
+    return skaddr.sin_addr.s_addr;
 }
